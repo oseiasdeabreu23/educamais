@@ -21,6 +21,14 @@ __pycache__/
 # Claude Code
 .claude/
 
+# Executáveis e scripts de venv dentro de scripts/
+scripts/*.exe
+scripts/activate
+scripts/activate.bat
+scripts/activate.fish
+scripts/Activate.ps1
+scripts/deactivate.bat
+
 # Uploads de usuários (logos etc.)
 app/static/uploads/
 

@@ -137,7 +137,7 @@ em **todos** os templates automaticamente (incluindo `login.html` que não herda
 3. Deploy em servidor (hoje só roda local)
 4. LGPD: termos de uso, logs de acesso
 5. Backup automático do banco
-6. ⚠️ Página `/admin/cursos/<id>` ainda apresenta falha — pendente de investigação
+6. ⚠️ (resolvido) Página `/admin/cursos` crashava com `TypeError` ao tentar `sum(attribute='videoaulas')` em listas — variável `total_videos` removida do template.
 
 ---
 

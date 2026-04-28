@@ -28,7 +28,6 @@
       </thead>
       <tbody>
         {% for c in cursos %}
-        {% set total_videos = c.modulos | sum(attribute='videoaulas') | list | length %}
         <tr>
           <td>
             <div class="fw-500">{{ c.titulo }}</div>
