@@ -1,0 +1,27 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-md-6">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h4>Registrar usuário</h4>
+        <form method="POST" action="{{ url_for('auth.register') }}">
+          <div class="mb-3"><label class="form-label">Nome</label><input class="form-control" name="nome" required></div>
+          <div class="mb-3"><label>Email</label><input class="form-control" type="email" name="email" required></div>
+          <div class="mb-3"><label>Senha</label><input class="form-control" type="password" name="senha" required></div>
+          <div class="mb-3">
+            <label>Tipo</label>
+            <select class="form-select" name="tipo" required>
+              <option value="admin">Admin</option>
+              <option value="professor">Professor</option>
+              <option value="responsavel">Responsável</option>
+            </select>
+          </div>
+          <button class="btn btn-success">Registrar</button>
+          <a class="btn btn-link" href="{{ url_for('auth.login') }}">Já tenho conta</a>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

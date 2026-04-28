@@ -1,0 +1,17 @@
+{% extends 'base.html' %}
+{% block content %}
+<h3>Observações</h3>
+<form method="POST" class="row g-3 mb-3">
+  <div class="col-md-4"><select name="aluno_id" class="form-select">{% for a in alunos %}<option value="{{a.id}}">{{a.nome}}</option>{% endfor %}</select></div>
+  <div class="col-md-6"><textarea class="form-control" name="texto" placeholder="Observação" required></textarea></div>
+  <div class="col-md-2"><button class="btn btn-success w-100">Adicionar</button></div>
+</form>
+<table class="table table-sm">
+  <thead><tr><th>Aluno</th><th>Professor</th><th>Texto</th><th>Data</th></tr></thead>
+  <tbody>
+  {% for o in observacoes %}
+    <tr><td>{{ o.aluno.nome }}</td><td>{{ o.professor.nome if o.professor else '—' }}</td><td>{{ o.texto }}</td><td>{{ o.data }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

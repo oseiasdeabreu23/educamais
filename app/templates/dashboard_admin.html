@@ -1,0 +1,111 @@
+{% extends 'base.html' %}
+{% block page_title %}Dashboard{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <h2>Dashboard</h2>
+  <p>Visão geral do sistema</p>
+</div>
+
+<!-- Stat cards -->
+<div class="row g-3 mb-4">
+  <div class="col-sm-6 col-lg-3">
+    <div class="stat-card stat-success">
+      <i class="bi bi-star-fill stat-icon"></i>
+      <div class="stat-value">{{ relatorios.media_geral }}</div>
+      <div class="stat-label">Média geral</div>
+    </div>
+  </div>
+  <div class="col-sm-6 col-lg-3">
+    <div class="stat-card stat-info">
+      <i class="bi bi-calendar-check-fill stat-icon"></i>
+      <div class="stat-value">{{ relatorios.frequencia }}%</div>
+      <div class="stat-label">Frequência</div>
+    </div>
+  </div>
+  <div class="col-sm-6 col-lg-3">
+    <div class="stat-card stat-warning">
+      <i class="bi bi-exclamation-triangle-fill stat-icon"></i>
+      <div class="stat-value">{{ relatorios.baixo_desempenho | length }}</div>
+      <div class="stat-label">Baixo desempenho</div>
+    </div>
+  </div>
+  <div class="col-sm-6 col-lg-3">
+    <div class="stat-card stat-primary">
+      <i class="bi bi-collection-fill stat-icon"></i>
+      <div class="stat-value">{{ turmas | length }}</div>
+      <div class="stat-label">Turmas ativas</div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-4">
+
+  <!-- Ações rápidas -->
+  <div class="col-lg-4">
+    <div class="card h-100">
+      <div class="card-header"><i class="bi bi-lightning-fill me-2"></i>Ações rápidas</div>
+      <div class="card-body">
+        <a class="quick-action" href="{{ url_for('admin.alunos') }}">
+          <i class="bi bi-people-fill"></i> Cadastrar alunos
+        </a>
+        <a class="quick-action" href="{{ url_for('admin.turmas') }}">
+          <i class="bi bi-collection-fill"></i> Gerenciar turmas
+        </a>
+        <a class="quick-action" href="{{ url_for('admin.disciplinas') }}">
+          <i class="bi bi-book-fill"></i> Gerenciar disciplinas
+        </a>
+        <a class="quick-action" href="{{ url_for('admin.professores') }}">
+          <i class="bi bi-person-video3"></i> Cadastrar professores
+        </a>
+        <a class="quick-action" href="{{ url_for('admin.responsaveis') }}">
+          <i class="bi bi-person-heart"></i> Cadastrar responsáveis
+        </a>
+        <a class="quick-action" href="{{ url_for('admin.usuarios') }}">
+          <i class="bi bi-shield-lock-fill"></i> Gerenciar usuários
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <!-- Alunos com baixo desempenho -->
+  <div class="col-lg-8">
+    <div class="card h-100">
+      <div class="card-header">
+        <i class="bi bi-exclamation-triangle-fill me-2 text-warning"></i>
+        Alunos com baixo desempenho
+      </div>
+      <div class="card-body p-0">
+        {% if relatorios.baixo_desempenho %}
+        <table class="table mb-0">
+          <thead>
+            <tr>
+              <th>Aluno</th>
+              <th>Turma</th>
+              <th>Média</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in relatorios.baixo_desempenho %}
+            <tr>
+              <td>{{ item.aluno.nome }}</td>
+              <td class="text-muted">{{ item.aluno.turma.nome if item.aluno.turma else '—' }}</td>
+              <td>
+                <span class="badge bg-danger">{{ item.media }}</span>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <div class="text-center py-5 text-muted">
+          <i class="bi bi-check-circle" style="font-size:2rem; color: #10b981; opacity:0.7"></i>
+          <p class="mt-2 mb-0">Nenhum aluno com baixo desempenho.</p>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}

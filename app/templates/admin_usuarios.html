@@ -1,0 +1,237 @@
+{% extends 'base.html' %}
+{% block page_title %}Gerenciar Usuários{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <h2>Usuários do Sistema</h2>
+  <p>Gerencie os acessos de professores e responsáveis</p>
+</div>
+
+<div class="row g-4">
+
+  <!-- Formulário: selecionar do cadastro -->
+  <div class="col-lg-4">
+    <div class="card">
+      <div class="card-header">
+        <i class="bi bi-person-plus-fill me-2"></i>Liberar Acesso
+      </div>
+      <div class="card-body">
+        <form method="POST" action="{{ url_for('admin.usuarios') }}" id="formCriar">
+          <input type="hidden" name="action" value="criar">
+          <input type="hidden" name="tipo" id="tipoHidden">
+
+          <input type="hidden" name="aluno_id" id="inputAlunoId">
+
+          <div class="mb-3">
+            <label class="form-label">Selecionar cadastro</label>
+            <select class="form-select" id="selectCadastro" onchange="preencherDados(this)"
+                    required>
+              <option value="">— Escolha professor, responsável ou aluno —</option>
+
+              {% if professores %}
+              <optgroup label="Professores">
+                {% for p in professores %}
+                <option value="professor|{{ p.nome }}|{{ p.email or '' }}|"
+                  {% if p.email and p.email in emails_com_acesso %}disabled{% endif %}>
+                  {{ p.nome }}
+                  {% if p.email and p.email in emails_com_acesso %} ✓ já tem acesso{% endif %}
+                </option>
+                {% endfor %}
+              </optgroup>
+              {% endif %}
+
+              {% if responsaveis %}
+              <optgroup label="Responsáveis">
+                {% for r in responsaveis %}
+                <option value="responsavel|{{ r.nome }}|{{ r.email or '' }}|"
+                  {% if r.email and r.email in emails_com_acesso %}disabled{% endif %}>
+                  {{ r.nome }}
+                  {% if r.email and r.email in emails_com_acesso %} ✓ já tem acesso{% endif %}
+                </option>
+                {% endfor %}
+              </optgroup>
+              {% endif %}
+
+              {% if alunos_sem_acesso %}
+              <optgroup label="Alunos (sem acesso)">
+                {% for a in alunos_sem_acesso %}
+                <option value="aluno|{{ a.nome }}||{{ a.id }}">
+                  {{ a.nome }}
+                  {% if a.turma %} — {{ a.turma.nome }}{% endif %}
+                </option>
+                {% endfor %}
+              </optgroup>
+              {% endif %}
+            </select>
+            <small class="text-muted">Cadastre os registros primeiro nas respectivas seções.</small>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label">Nome</label>
+            <input class="form-control" name="nome" id="inputNome"
+                   placeholder="Preenchido automaticamente" required readonly
+                   style="background:#f8fafc">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">E-mail <small class="text-muted">(para login)</small></label>
+            <input class="form-control" type="email" name="email" id="inputEmail"
+                   placeholder="Preenchido automaticamente ou insira" required>
+          </div>
+          <div class="mb-4">
+            <label class="form-label">Senha de acesso</label>
+            <input class="form-control" type="password" name="senha"
+                   placeholder="Mínimo 6 caracteres" minlength="6" required>
+          </div>
+          <button type="submit" class="btn btn-primary w-100" id="btnCriar" disabled>
+            <i class="bi bi-key me-1"></i> Liberar acesso
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Lista de usuários -->
+  <div class="col-lg-8">
+    <div class="card">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-people-fill me-2"></i>Usuários com acesso</span>
+        <span class="badge bg-secondary">{{ usuarios|length }}</span>
+      </div>
+      <div class="card-body p-0">
+        {% if usuarios %}
+        <table class="table mb-0">
+          <thead>
+            <tr>
+              <th>Nome</th>
+              <th>E-mail</th>
+              <th>Tipo</th>
+              <th style="width:90px"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for u in usuarios %}
+            <tr>
+              <td>
+                <div class="d-flex align-items-center gap-2">
+                  <div class="user-avatar" style="width:30px;height:30px;font-size:0.75rem">
+                    {{ u.nome[0].upper() }}
+                  </div>
+                  {{ u.nome }}
+                </div>
+              </td>
+              <td class="text-muted">{{ u.email }}</td>
+              <td>
+                {% if u.tipo == 'professor' %}
+                  <span class="badge badge-professor">Professor</span>
+                {% elif u.tipo == 'aluno' %}
+                  <span class="badge bg-info text-dark">Aluno</span>
+                {% else %}
+                  <span class="badge badge-responsavel">Responsável</span>
+                {% endif %}
+              </td>
+              <td>
+                <div class="table-actions">
+                  <button class="btn btn-sm btn-outline-primary"
+                          data-bs-toggle="modal"
+                          data-bs-target="#editModal{{ u.id }}">
+                    <i class="bi bi-pencil"></i>
+                  </button>
+                  <form method="POST" action="{{ url_for('admin.usuarios') }}"
+                        onsubmit="return confirm('Remover acesso de {{ u.nome }}?')">
+                    <input type="hidden" name="action" value="excluir">
+                    <input type="hidden" name="user_id" value="{{ u.id }}">
+                    <button type="submit" class="btn btn-sm btn-danger">
+                      <i class="bi bi-trash"></i>
+                    </button>
+                  </form>
+                </div>
+              </td>
+            </tr>
+
+            <!-- Modal editar usuário -->
+            <div class="modal fade" id="editModal{{ u.id }}" tabindex="-1">
+              <div class="modal-dialog">
+                <div class="modal-content">
+                  <div class="modal-header">
+                    <h5 class="modal-title">
+                      <i class="bi bi-pencil me-2"></i>Editar acesso
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                  </div>
+                  <form method="POST" action="{{ url_for('admin.usuarios') }}">
+                    <input type="hidden" name="action" value="editar">
+                    <input type="hidden" name="user_id" value="{{ u.id }}">
+                    <div class="modal-body">
+                      <div class="mb-3">
+                        <label class="form-label">Nome</label>
+                        <input class="form-control" name="nome" value="{{ u.nome }}" required>
+                      </div>
+                      <div class="mb-3">
+                        <label class="form-label">E-mail</label>
+                        <input class="form-control" type="email" name="email"
+                               value="{{ u.email }}" required>
+                      </div>
+                      <div class="mb-1">
+                        <label class="form-label">Nova senha</label>
+                        <input class="form-control" type="password" name="senha"
+                               placeholder="Deixe em branco para não alterar"
+                               minlength="6">
+                      </div>
+                      <small class="text-muted">
+                        <i class="bi bi-info-circle me-1"></i>
+                        Deixe a senha em branco para manter a atual.
+                      </small>
+                    </div>
+                    <div class="modal-footer">
+                      <button type="button" class="btn btn-secondary"
+                              data-bs-dismiss="modal">Cancelar</button>
+                      <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-check-lg me-1"></i> Salvar
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            </div>
+
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <div class="text-center py-5 text-muted">
+          <i class="bi bi-people" style="font-size:2rem; opacity:0.3"></i>
+          <p class="mt-2 mb-0">Nenhum usuário com acesso ainda.</p>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+function preencherDados(select) {
+  const val = select.value;
+  const nome = document.getElementById('inputNome');
+  const email = document.getElementById('inputEmail');
+  const tipo = document.getElementById('tipoHidden');
+  const alunoId = document.getElementById('inputAlunoId');
+  const btn = document.getElementById('btnCriar');
+
+  if (!val) {
+    nome.value = ''; email.value = ''; tipo.value = '';
+    alunoId.value = ''; btn.disabled = true;
+    return;
+  }
+
+  const partes = val.split('|');
+  tipo.value = partes[0];
+  nome.value = partes[1];
+  email.value = partes[2] || '';
+  alunoId.value = partes[3] || '';
+  btn.disabled = false;
+  if (!partes[2]) email.focus();
+}
+</script>
+
+{% endblock %}

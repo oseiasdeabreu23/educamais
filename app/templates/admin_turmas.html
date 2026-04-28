@@ -1,0 +1,109 @@
+{% extends 'base.html' %}
+{% block page_title %}Turmas{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <h2>Turmas</h2>
+  <p>Gerencie as turmas da escola</p>
+</div>
+
+<div class="row g-4">
+
+  <!-- Formulário -->
+  <div class="col-lg-4">
+    <div class="card">
+      <div class="card-header"><i class="bi bi-plus-circle-fill me-2"></i>Nova Turma</div>
+      <div class="card-body">
+        <form method="POST" action="{{ url_for('admin.turmas') }}">
+          <div class="mb-4">
+            <label class="form-label">Nome da turma</label>
+            <input class="form-control" name="nome" placeholder="Ex: 3º Ano A" required>
+          </div>
+          <button type="submit" class="btn btn-primary w-100">
+            <i class="bi bi-plus-circle me-1"></i> Criar turma
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tabela -->
+  <div class="col-lg-8">
+    <div class="card">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-collection-fill me-2"></i>Turmas cadastradas</span>
+        <span class="badge bg-secondary">{{ turmas | length }}</span>
+      </div>
+      <div class="card-body p-0">
+        {% if turmas %}
+        <table class="table mb-0">
+          <thead>
+            <tr>
+              <th>Nome</th>
+              <th>Alunos</th>
+              <th style="width:100px"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for t in turmas %}
+            <tr>
+              <td><i class="bi bi-collection me-2 text-muted"></i>{{ t.nome }}</td>
+              <td>
+                <span class="badge badge-professor">{{ t.alunos | length }} aluno(s)</span>
+              </td>
+              <td>
+                <div class="table-actions">
+                  <button class="btn btn-sm btn-outline-primary"
+                          data-bs-toggle="modal"
+                          data-bs-target="#editModal{{ t.id }}">
+                    <i class="bi bi-pencil"></i>
+                  </button>
+                  <form method="POST" action="{{ url_for('admin.excluir_turma', id=t.id) }}"
+                        onsubmit="return confirm('Excluir turma {{ t.nome }}?')">
+                    <button type="submit" class="btn btn-sm btn-danger">
+                      <i class="bi bi-trash"></i>
+                    </button>
+                  </form>
+                </div>
+              </td>
+            </tr>
+
+            <!-- Modal editar turma -->
+            <div class="modal fade" id="editModal{{ t.id }}" tabindex="-1">
+              <div class="modal-dialog">
+                <div class="modal-content">
+                  <div class="modal-header">
+                    <h5 class="modal-title">Editar Turma</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                  </div>
+                  <form method="POST" action="{{ url_for('admin.editar_turma', id=t.id) }}">
+                    <div class="modal-body">
+                      <div class="mb-3">
+                        <label class="form-label">Nome da turma</label>
+                        <input class="form-control" name="nome" value="{{ t.nome }}" required>
+                      </div>
+                    </div>
+                    <div class="modal-footer">
+                      <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                      <button type="submit" class="btn btn-primary">Salvar</button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            </div>
+
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <div class="text-center py-5 text-muted">
+          <i class="bi bi-collection" style="font-size:2rem; opacity:0.3"></i>
+          <p class="mt-2 mb-0">Nenhuma turma cadastrada ainda.</p>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}

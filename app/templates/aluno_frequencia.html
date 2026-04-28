@@ -1,0 +1,109 @@
+{% extends 'base.html' %}
+{% block page_title %}Frequência{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <h2>Minha Frequência</h2>
+  <p>{{ aluno.nome }}</p>
+</div>
+
+{% if alertas %}
+<div class="alert alert-warning mb-4">
+  <i class="bi bi-exclamation-triangle-fill me-2"></i>
+  {% for a in alertas %}{{ a }}{% if not loop.last %} · {% endif %}{% endfor %}
+</div>
+{% endif %}
+
+{# ── Cards de resumo ── #}
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-3">
+    <div class="card text-center py-3">
+      <div style="font-size:2rem; font-weight:700; color: var(--primary)">{{ freq.total }}</div>
+      <div class="text-muted small mt-1">Total de Aulas</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card text-center py-3">
+      <div style="font-size:2rem; font-weight:700; color: var(--success)">{{ freq.presencas }}</div>
+      <div class="text-muted small mt-1">Presenças</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card text-center py-3">
+      <div style="font-size:2rem; font-weight:700; color: #f59e0b">{{ freq.justificadas }}</div>
+      <div class="text-muted small mt-1">Justificadas</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card text-center py-3">
+      <div style="font-size:2rem; font-weight:700; color: var(--danger)">{{ freq.faltas }}</div>
+      <div class="text-muted small mt-1">Faltas</div>
+    </div>
+  </div>
+</div>
+
+{# ── Barra de progresso ── #}
+{% if freq.total > 0 %}
+<div class="card mb-4">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <span class="fw-500">Percentual de Presença</span>
+      <span class="fw-700 fs-5
+        {% if freq.percentual >= 75 %}text-success{% else %}text-danger{% endif %}">
+        {{ freq.percentual }}%
+      </span>
+    </div>
+    <div class="progress" style="height:12px; border-radius:6px">
+      <div class="progress-bar {% if freq.percentual >= 75 %}bg-success{% elif freq.percentual >= 60 %}bg-warning{% else %}bg-danger{% endif %}"
+           style="width:{{ freq.percentual }}%"></div>
+    </div>
+    <div class="d-flex justify-content-between mt-1">
+      <small class="text-muted">0%</small>
+      <small class="text-muted">Mínimo: 75%</small>
+      <small class="text-muted">100%</small>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{# ── Histórico ── #}
+<div class="card">
+  <div class="card-header"><i class="bi bi-clock-history me-2"></i>Histórico de Frequência</div>
+  <div class="card-body p-0">
+    {% if historico %}
+    <table class="table mb-0">
+      <thead>
+        <tr>
+          <th>Data</th>
+          <th>Disciplina</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for f in historico %}
+        <tr>
+          <td>{{ f.data.strftime('%d/%m/%Y') if f.data else '–' }}</td>
+          <td>{{ f.disciplina.nome if f.disciplina else '–' }}</td>
+          <td>
+            {% if f.status == 'presente' %}
+              <span class="badge bg-success">Presente</span>
+            {% elif f.status == 'justificada' %}
+              <span class="badge bg-warning text-dark">Justificada</span>
+            {% else %}
+              <span class="badge bg-danger">Falta</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="text-center py-5 text-muted">
+      <i class="bi bi-calendar-x" style="font-size:2rem;opacity:0.3"></i>
+      <p class="mt-2 mb-0">Nenhum registro de frequência ainda.</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{% endblock %}

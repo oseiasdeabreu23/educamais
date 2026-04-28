@@ -1,0 +1,125 @@
+{% extends 'base.html' %}
+{% block page_title %}Gerenciar Cursos{% endblock %}
+{% block content %}
+
+<div class="page-header d-flex justify-content-between align-items-center flex-wrap gap-3">
+  <div>
+    <h2>Cursos</h2>
+    <p>Gerencie os cursos disponíveis e as matrículas dos alunos</p>
+  </div>
+  <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#modalNovoCurso">
+    <i class="bi bi-plus-circle me-1"></i> Novo Curso
+  </button>
+</div>
+
+{% if cursos %}
+<div class="card">
+  <div class="card-body p-0">
+    <table class="table mb-0">
+      <thead>
+        <tr>
+          <th>Título</th>
+          <th class="text-center">Módulos</th>
+          <th class="text-center">Videoaulas</th>
+          <th class="text-center">Alunos</th>
+          <th class="text-center">Status</th>
+          <th style="width:130px"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in cursos %}
+        {% set total_videos = c.modulos | sum(attribute='videoaulas') | list | length %}
+        <tr>
+          <td>
+            <div class="fw-500">{{ c.titulo }}</div>
+            {% if c.descricao %}
+            <div class="text-muted small"
+                 style="display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden">
+              {{ c.descricao }}
+            </div>
+            {% endif %}
+          </td>
+          <td class="text-center">{{ c.modulos | length }}</td>
+          <td class="text-center">
+            {{ c.modulos | map(attribute='videoaulas') | map('list') | map('length') | sum }}
+          </td>
+          <td class="text-center">{{ c.matriculas | length }}</td>
+          <td class="text-center">
+            {% if c.ativo %}
+              <span class="badge bg-success">Ativo</span>
+            {% else %}
+              <span class="badge bg-secondary">Inativo</span>
+            {% endif %}
+          </td>
+          <td>
+            <div class="table-actions">
+              <a href="{{ url_for('admin.curso_detalhe', curso_id=c.id) }}"
+                 class="btn btn-sm btn-outline-primary">
+                <i class="bi bi-pencil"></i>
+              </a>
+              <form method="POST"
+                    action="{{ url_for('admin.excluir_curso', curso_id=c.id) }}"
+                    onsubmit="return confirm('Excluir o curso &quot;{{ c.titulo }}&quot; e todos os seus módulos/vídeos?')">
+                <button type="submit" class="btn btn-sm btn-danger">
+                  <i class="bi bi-trash"></i>
+                </button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% else %}
+<div class="card">
+  <div class="card-body text-center py-5 text-muted">
+    <i class="bi bi-play-circle" style="font-size:3rem;opacity:0.3"></i>
+    <p class="mt-3 mb-1">Nenhum curso cadastrado ainda.</p>
+    <button class="btn btn-primary mt-2"
+            data-bs-toggle="modal" data-bs-target="#modalNovoCurso">
+      <i class="bi bi-plus-circle me-1"></i> Criar primeiro curso
+    </button>
+  </div>
+</div>
+{% endif %}
+
+{# ── Modal: Novo curso ── #}
+<div class="modal fade" id="modalNovoCurso" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-plus-circle me-2"></i>Novo Curso</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="POST" action="{{ url_for('admin.cursos') }}">
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">Título <span class="text-danger">*</span></label>
+            <input class="form-control" name="titulo" required placeholder="Ex: Introdução à Matemática">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Descrição</label>
+            <textarea class="form-control" name="descricao" rows="3"
+                      placeholder="Descrição breve do curso..."></textarea>
+          </div>
+          <div class="mb-1">
+            <label class="form-label">URL da capa <small class="text-muted">(opcional)</small></label>
+            <input class="form-control" name="capa_url" type="url"
+                   placeholder="https://...">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button type="submit" class="btn btn-primary">
+            <i class="bi bi-check-lg me-1"></i> Criar Curso
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

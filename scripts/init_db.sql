@@ -1,0 +1,73 @@
+-- Script de criação de esquema PostgreSQL para EducaMais
+CREATE TABLE IF NOT EXISTS usuarios (
+  id SERIAL PRIMARY KEY,
+  nome VARCHAR(100) NOT NULL,
+  email VARCHAR(120) UNIQUE NOT NULL,
+  senha VARCHAR(255) NOT NULL,
+  tipo VARCHAR(20) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS turmas (
+  id SERIAL PRIMARY KEY,
+  nome VARCHAR(100) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS disciplinas (
+  id SERIAL PRIMARY KEY,
+  nome VARCHAR(100) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS alunos (
+  id SERIAL PRIMARY KEY,
+  nome VARCHAR(100) NOT NULL,
+  data_nascimento DATE NOT NULL,
+  turma_id INTEGER REFERENCES turmas(id)
+);
+
+CREATE TABLE IF NOT EXISTS responsaveis (
+  id SERIAL PRIMARY KEY,
+  nome VARCHAR(100) NOT NULL,
+  telefone VARCHAR(50) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS aluno_responsavel (
+  id SERIAL PRIMARY KEY,
+  aluno_id INTEGER REFERENCES alunos(id),
+  responsavel_id INTEGER REFERENCES responsaveis(id)
+);
+
+CREATE TABLE IF NOT EXISTS professores (
+  id SERIAL PRIMARY KEY,
+  nome VARCHAR(100) NOT NULL,
+  disciplina_id INTEGER REFERENCES disciplinas(id)
+);
+
+CREATE TABLE IF NOT EXISTS notas (
+  id SERIAL PRIMARY KEY,
+  aluno_id INTEGER REFERENCES alunos(id) NOT NULL,
+  disciplina_id INTEGER REFERENCES disciplinas(id) NOT NULL,
+  valor NUMERIC(4,2) NOT NULL,
+  data DATE DEFAULT CURRENT_DATE
+);
+
+CREATE TABLE IF NOT EXISTS frequencias (
+  id SERIAL PRIMARY KEY,
+  aluno_id INTEGER REFERENCES alunos(id) NOT NULL,
+  data DATE DEFAULT CURRENT_DATE,
+  status VARCHAR(20) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS atividades (
+  id SERIAL PRIMARY KEY,
+  titulo VARCHAR(120) NOT NULL,
+  descricao TEXT,
+  data DATE DEFAULT CURRENT_DATE
+);
+
+CREATE TABLE IF NOT EXISTS observacoes (
+  id SERIAL PRIMARY KEY,
+  aluno_id INTEGER REFERENCES alunos(id) NOT NULL,
+  professor_id INTEGER REFERENCES professores(id) NOT NULL,
+  texto TEXT NOT NULL,
+  data DATE DEFAULT CURRENT_DATE
+);

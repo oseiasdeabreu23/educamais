@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ config_sistema.nome }} — Login</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+</head>
+<body>
+
+<div class="login-page">
+
+  <!-- Lado esquerdo — branding -->
+  <div class="login-brand-side">
+    <div class="login-brand-icon">
+      <i class="bi bi-mortarboard-fill"></i>
+    </div>
+    {% if config_sistema.logo_path %}
+      <img src="{{ url_for('static', filename='uploads/' + config_sistema.logo_path) }}"
+           alt="{{ config_sistema.nome }}"
+           style="max-height:72px; max-width:240px; object-fit:contain; margin-bottom:16px; display:block">
+    {% else %}
+      <h1>{{ config_sistema.nome }}</h1>
+    {% endif %}
+    <p>Plataforma de gestão educacional para professores, alunos e responsáveis.</p>
+  </div>
+
+  <!-- Lado direito — formulário -->
+  <div class="login-form-side">
+    <div class="login-form-container">
+
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          {% for category, message in messages %}
+            <div class="alert alert-{{ category }} alert-dismissible fade show mb-4" role="alert">
+              {{ message }}
+              <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+          {% endfor %}
+        {% endif %}
+      {% endwith %}
+
+      <h2>Bem-vindo!</h2>
+      <p class="subtitle">Acesse sua conta para continuar</p>
+
+      <form method="POST" action="{{ url_for('auth.login') }}">
+        <div class="mb-3">
+          <label class="form-label">Email</label>
+          <input type="email" name="email" class="form-control"
+                 placeholder="seu@email.com" required autofocus>
+        </div>
+        <div class="mb-4">
+          <label class="form-label">Senha</label>
+          <input type="password" name="senha" class="form-control"
+                 placeholder="••••••••" required>
+        </div>
+        <button type="submit" class="btn btn-primary btn-login">
+          Entrar &nbsp;<i class="bi bi-arrow-right"></i>
+        </button>
+      </form>
+
+    </div>
+  </div>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

@@ -1,0 +1,74 @@
+{% extends 'base.html' %}
+{% block page_title %}Disciplinas{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <h2>Disciplinas</h2>
+  <p>Gerencie as disciplinas oferecidas</p>
+</div>
+
+<div class="row g-4">
+
+  <!-- Formulário -->
+  <div class="col-lg-4">
+    <div class="card">
+      <div class="card-header"><i class="bi bi-book-fill me-2"></i>Nova Disciplina</div>
+      <div class="card-body">
+        <form method="POST" action="{{ url_for('admin.disciplinas') }}">
+          <div class="mb-4">
+            <label class="form-label">Nome da disciplina</label>
+            <input class="form-control" name="nome" placeholder="Ex: Matemática" required>
+          </div>
+          <button type="submit" class="btn btn-primary w-100">
+            <i class="bi bi-plus-circle me-1"></i> Criar disciplina
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tabela -->
+  <div class="col-lg-8">
+    <div class="card">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-book-fill me-2"></i>Disciplinas cadastradas</span>
+        <span class="badge bg-secondary">{{ disciplinas | length }}</span>
+      </div>
+      <div class="card-body p-0">
+        {% if disciplinas %}
+        <table class="table mb-0">
+          <thead>
+            <tr>
+              <th>Nome</th>
+              <th>Professores</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for d in disciplinas %}
+            <tr>
+              <td><i class="bi bi-book me-2 text-muted"></i>{{ d.nome }}</td>
+              <td>
+                {% if d.professores %}
+                  {% for p in d.professores %}
+                    <span class="badge badge-professor">{{ p.nome }}</span>
+                  {% endfor %}
+                {% else %}
+                  <span class="text-muted">—</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <div class="text-center py-5 text-muted">
+          <i class="bi bi-book" style="font-size:2rem; opacity:0.3"></i>
+          <p class="mt-2 mb-0">Nenhuma disciplina cadastrada ainda.</p>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}

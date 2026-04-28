@@ -1,0 +1,6 @@
+{% extends 'base.html' %}
+{% block content %}
+<h3>Alerta para {{ aluno.nome }}</h3>
+<div class="alert alert-info">{{ message }}</div>
+<a href="{{ url_for('responsavel.dashboard') }}" class="btn btn-primary">Voltar</a>
+{% endblock %}

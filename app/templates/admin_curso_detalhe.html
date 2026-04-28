@@ -1,0 +1,269 @@
+{% extends 'base.html' %}
+{% block page_title %}{{ curso.titulo }}{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <nav aria-label="breadcrumb">
+    <ol class="breadcrumb mb-1">
+      <li class="breadcrumb-item"><a href="{{ url_for('admin.cursos') }}">Cursos</a></li>
+      <li class="breadcrumb-item active">{{ curso.titulo }}</li>
+    </ol>
+  </nav>
+  <h2>{{ curso.titulo }}</h2>
+</div>
+
+<div class="row g-4">
+
+  {# ── Coluna esquerda: editar curso + módulos/vídeos ── #}
+  <div class="col-lg-8">
+
+    {# Editar curso #}
+    <div class="card mb-4">
+      <div class="card-header"><i class="bi bi-pencil me-2"></i>Editar Curso</div>
+      <div class="card-body">
+        <form method="POST">
+          <input type="hidden" name="action" value="editar_curso">
+          <div class="row g-3">
+            <div class="col-12">
+              <label class="form-label">Título</label>
+              <input class="form-control" name="titulo" value="{{ curso.titulo }}" required>
+            </div>
+            <div class="col-12">
+              <label class="form-label">Descrição</label>
+              <textarea class="form-control" name="descricao" rows="2">{{ curso.descricao or '' }}</textarea>
+            </div>
+            <div class="col-md-8">
+              <label class="form-label">URL da capa</label>
+              <input class="form-control" name="capa_url" type="url"
+                     value="{{ curso.capa_url or '' }}" placeholder="https://...">
+            </div>
+            <div class="col-md-4 d-flex align-items-end">
+              <div class="form-check mb-2">
+                <input class="form-check-input" type="checkbox" name="ativo" id="checkAtivo"
+                       {% if curso.ativo %}checked{% endif %}>
+                <label class="form-check-label" for="checkAtivo">Curso ativo</label>
+              </div>
+            </div>
+            <div class="col-12">
+              <button type="submit" class="btn btn-primary">
+                <i class="bi bi-check-lg me-1"></i> Salvar alterações
+              </button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    {# Módulos e videoaulas #}
+    <div class="card">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-collection-play me-2"></i>Módulos e Videoaulas</span>
+        <button class="btn btn-sm btn-outline-primary"
+                data-bs-toggle="modal" data-bs-target="#modalNovoModulo">
+          <i class="bi bi-plus-circle me-1"></i> Módulo
+        </button>
+      </div>
+      <div class="card-body p-0">
+        {% if curso.modulos %}
+        <div class="accordion accordion-flush" id="accordionAdmin">
+          {% for mod in curso.modulos %}
+          <div class="accordion-item">
+            <h2 class="accordion-header">
+              <button class="accordion-button collapsed py-2"
+                      type="button"
+                      data-bs-toggle="collapse"
+                      data-bs-target="#admMod{{ mod.id }}">
+                <span class="fw-500 flex-grow-1">
+                  <i class="bi bi-folder2-open me-2 text-primary"></i>
+                  Módulo {{ loop.index }}: {{ mod.titulo }}
+                </span>
+                <span class="badge bg-secondary me-3">{{ mod.videoaulas | length }} aula(s)</span>
+              </button>
+            </h2>
+            <div id="admMod{{ mod.id }}" class="accordion-collapse collapse">
+              <div class="accordion-body p-0">
+
+                {# Vídeos existentes #}
+                {% if mod.videoaulas %}
+                <table class="table table-sm mb-0">
+                  <thead class="table-light">
+                    <tr><th>#</th><th>Título</th><th>Duração</th><th></th></tr>
+                  </thead>
+                  <tbody>
+                    {% for v in mod.videoaulas %}
+                    <tr>
+                      <td class="text-muted">{{ loop.index }}</td>
+                      <td>
+                        <i class="bi bi-play-circle text-primary me-1"></i>
+                        {{ v.titulo }}
+                      </td>
+                      <td class="text-muted">
+                        {{ v.duracao_min ~ ' min' if v.duracao_min else '–' }}
+                      </td>
+                      <td>
+                        <form method="POST"
+                              onsubmit="return confirm('Excluir videoaula?')">
+                          <input type="hidden" name="action" value="excluir_video">
+                          <input type="hidden" name="video_id" value="{{ v.id }}">
+                          <button type="submit" class="btn btn-sm btn-outline-danger">
+                            <i class="bi bi-trash"></i>
+                          </button>
+                        </form>
+                      </td>
+                    </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+                {% endif %}
+
+                {# Formulário: adicionar vídeo #}
+                <form method="POST" class="p-3 border-top bg-light">
+                  <input type="hidden" name="action" value="criar_video">
+                  <input type="hidden" name="modulo_id" value="{{ mod.id }}">
+                  <div class="row g-2 align-items-end">
+                    <div class="col-md-5">
+                      <label class="form-label form-label-sm">Título da aula</label>
+                      <input class="form-control form-control-sm" name="titulo"
+                             placeholder="Ex: Aula 1 – Introdução" required>
+                    </div>
+                    <div class="col-md-5">
+                      <label class="form-label form-label-sm">URL do vídeo (YouTube/Vimeo)</label>
+                      <input class="form-control form-control-sm" name="video_url"
+                             type="url" placeholder="https://youtube.com/watch?v=..." required>
+                    </div>
+                    <div class="col-md-2">
+                      <label class="form-label form-label-sm">Min</label>
+                      <input class="form-control form-control-sm" name="duracao_min"
+                             type="number" min="1" placeholder="15">
+                    </div>
+                    <div class="col-12">
+                      <button type="submit" class="btn btn-sm btn-primary">
+                        <i class="bi bi-plus me-1"></i>Adicionar aula
+                      </button>
+                    </div>
+                  </div>
+                </form>
+
+                {# Excluir módulo #}
+                <div class="p-2 border-top d-flex justify-content-end">
+                  <form method="POST"
+                        onsubmit="return confirm('Excluir módulo e todas as suas aulas?')">
+                    <input type="hidden" name="action" value="excluir_modulo">
+                    <input type="hidden" name="modulo_id" value="{{ mod.id }}">
+                    <button type="submit" class="btn btn-sm btn-outline-danger">
+                      <i class="bi bi-trash me-1"></i>Excluir módulo
+                    </button>
+                  </form>
+                </div>
+
+              </div>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+
+        {% else %}
+        <div class="text-center py-4 text-muted">
+          <i class="bi bi-collection" style="font-size:2rem;opacity:0.3"></i>
+          <p class="mt-2 mb-0 small">Nenhum módulo ainda. Clique em "+ Módulo" para começar.</p>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+  </div>
+
+  {# ── Coluna direita: matrículas ── #}
+  <div class="col-lg-4">
+    <div class="card">
+      <div class="card-header"><i class="bi bi-people me-2"></i>Alunos Matriculados</div>
+      <div class="card-body">
+
+        {# Adicionar matrícula #}
+        {% if alunos_disponiveis %}
+        <form method="POST" class="mb-3">
+          <input type="hidden" name="action" value="matricular">
+          <div class="input-group input-group-sm">
+            <select class="form-select" name="aluno_id" required>
+              <option value="">Selecionar aluno...</option>
+              {% for a in alunos_disponiveis %}
+              <option value="{{ a.id }}">{{ a.nome }}</option>
+              {% endfor %}
+            </select>
+            <button type="submit" class="btn btn-primary">
+              <i class="bi bi-plus"></i>
+            </button>
+          </div>
+        </form>
+        {% else %}
+        <p class="text-muted small mb-3">Todos os alunos cadastrados já estão matriculados.</p>
+        {% endif %}
+
+        {# Lista de matriculados #}
+        {% if curso.matriculas %}
+        <ul class="list-group list-group-flush">
+          {% for m in curso.matriculas %}
+          <li class="list-group-item d-flex align-items-center justify-content-between px-0">
+            <div class="d-flex align-items-center gap-2">
+              <div class="user-avatar" style="width:28px;height:28px;font-size:0.7rem">
+                {{ m.aluno.nome[0].upper() }}
+              </div>
+              <div>
+                <div style="font-size:0.85rem; font-weight:500">{{ m.aluno.nome }}</div>
+                <div class="text-muted" style="font-size:0.75rem">
+                  desde {{ m.data_matricula.strftime('%d/%m/%Y') if m.data_matricula else '–' }}
+                </div>
+              </div>
+            </div>
+            <form method="POST"
+                  onsubmit="return confirm('Remover matrícula de {{ m.aluno.nome }}?')">
+              <input type="hidden" name="action" value="desmatricular">
+              <input type="hidden" name="matricula_id" value="{{ m.id }}">
+              <button type="submit" class="btn btn-sm btn-outline-danger">
+                <i class="bi bi-x-lg"></i>
+              </button>
+            </form>
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <div class="text-center py-3 text-muted small">
+          <i class="bi bi-person-x" style="font-size:1.5rem;opacity:0.3"></i>
+          <p class="mt-1 mb-0">Nenhum aluno matriculado.</p>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+</div>
+
+{# ── Modal: Novo módulo ── #}
+<div class="modal fade" id="modalNovoModulo" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-folder-plus me-2"></i>Novo Módulo</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="POST">
+        <input type="hidden" name="action" value="criar_modulo">
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">Título do módulo <span class="text-danger">*</span></label>
+            <input class="form-control" name="titulo" required
+                   placeholder="Ex: Módulo 1 – Fundamentos">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button type="submit" class="btn btn-primary">
+            <i class="bi bi-check-lg me-1"></i> Criar Módulo
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

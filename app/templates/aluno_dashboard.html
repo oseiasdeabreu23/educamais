@@ -1,0 +1,205 @@
+{% extends 'base.html' %}
+{% block page_title %}Meu Dashboard{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <h2>Olá, {{ aluno.nome.split()[0] }}!</h2>
+  <p>{{ aluno.turma.nome if aluno.turma else 'Sem turma' }} · Ano {{ ano_atual }}</p>
+</div>
+
+{# ── Alertas ── #}
+{% if alertas %}
+<div class="alert alert-warning d-flex align-items-center gap-2 mb-4" role="alert">
+  <i class="bi bi-exclamation-triangle-fill fs-5"></i>
+  <div>
+    <strong>Atenção:</strong>
+    {% for a in alertas %}<span>{{ a }}</span>{% if not loop.last %} · {% endif %}{% endfor %}
+  </div>
+</div>
+{% endif %}
+{% if queda %}
+<div class="alert alert-danger d-flex align-items-center gap-2 mb-4" role="alert">
+  <i class="bi bi-graph-down-arrow fs-5"></i>
+  <div>{{ msg_queda }}</div>
+</div>
+{% endif %}
+
+{# ── Cards de resumo ── #}
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-3">
+    <div class="card text-center py-3">
+      <div style="font-size:2rem; font-weight:700;
+        color: {% if media >= 7 %}var(--success){% elif media >= 5 %}#f59e0b{% else %}var(--danger){% endif %}">
+        {{ "%.1f"|format(media) if media else "–" }}
+      </div>
+      <div class="text-muted small mt-1"><i class="bi bi-award me-1"></i>Média Geral</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card text-center py-3">
+      <div style="font-size:2rem; font-weight:700;
+        color: {% if freq.percentual and freq.percentual >= 75 %}var(--success){% elif freq.percentual %}var(--danger){% else %}var(--text-muted){% endif %}">
+        {{ freq.percentual|string + '%' if freq.percentual is not none else '–' }}
+      </div>
+      <div class="text-muted small mt-1"><i class="bi bi-calendar-check me-1"></i>Frequência</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card text-center py-3">
+      <div style="font-size:2rem; font-weight:700; color: var(--primary)">
+        {{ matriculas|length }}
+      </div>
+      <div class="text-muted small mt-1"><i class="bi bi-play-circle me-1"></i>Cursos Ativos</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card text-center py-3">
+      <div style="font-size:2rem; font-weight:700;
+        color: {% if alertas %}var(--danger){% else %}var(--success){% endif %}">
+        {{ alertas|length if alertas else '0' }}
+      </div>
+      <div class="text-muted small mt-1"><i class="bi bi-bell me-1"></i>Alertas</div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-4">
+
+  {# ── Gráfico de desempenho ── #}
+  <div class="col-lg-8">
+    <div class="card">
+      <div class="card-header"><i class="bi bi-graph-up me-2"></i>Evolução de Notas · {{ ano_atual }}</div>
+      <div class="card-body">
+        {% if series_chart %}
+        <canvas id="chartDesempenho" height="90"></canvas>
+        {% else %}
+        <div class="text-center py-4 text-muted">
+          <i class="bi bi-bar-chart" style="font-size:2rem;opacity:0.3"></i>
+          <p class="mt-2 mb-0">Sem notas lançadas este ano.</p>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  {# ── Atividades recentes ── #}
+  <div class="col-lg-4">
+    <div class="card h-100">
+      <div class="card-header"><i class="bi bi-clipboard me-2"></i>Atividades Recentes</div>
+      <div class="card-body p-0">
+        {% if atividades %}
+        <ul class="list-group list-group-flush">
+          {% for at in atividades %}
+          <li class="list-group-item">
+            <div class="fw-500" style="font-size:0.9rem">{{ at.titulo }}</div>
+            <div class="text-muted" style="font-size:0.78rem">
+              {{ at.data.strftime('%d/%m/%Y') if at.data else '' }}
+              {% if at.disciplina %} · {{ at.disciplina.nome }}{% endif %}
+            </div>
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <div class="text-center py-4 text-muted">
+          <i class="bi bi-clipboard-x" style="font-size:2rem;opacity:0.3"></i>
+          <p class="mt-2 mb-0 small">Sem atividades recentes.</p>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  {# ── Notas por disciplina ── #}
+  <div class="col-12">
+    <div class="card">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-pencil-fill me-2"></i>Desempenho por Disciplina</span>
+        <a href="{{ url_for('aluno.boletim') }}" class="btn btn-sm btn-outline-primary">
+          <i class="bi bi-file-earmark-text me-1"></i>Boletim completo
+        </a>
+      </div>
+      <div class="card-body p-0">
+        {% if disciplinas_data %}
+        <table class="table mb-0">
+          <thead>
+            <tr><th>Disciplina</th><th>Notas</th><th style="width:100px">Média</th></tr>
+          </thead>
+          <tbody>
+            {% for d in disciplinas_data %}
+            <tr>
+              <td class="fw-500">{{ d.disciplina.nome }}</td>
+              <td>
+                {% for n in d.notas[-6:] %}
+                  {% if n.valor >= 7 %}
+                    <span class="badge bg-success me-1">{{ "%.1f"|format(n.valor) }}</span>
+                  {% elif n.valor >= 5 %}
+                    <span class="badge bg-warning text-dark me-1">{{ "%.1f"|format(n.valor) }}</span>
+                  {% else %}
+                    <span class="badge bg-danger me-1">{{ "%.1f"|format(n.valor) }}</span>
+                  {% endif %}
+                {% endfor %}
+              </td>
+              <td>
+                {% if d.media >= 7 %}
+                  <span class="badge bg-success px-3 py-2 fs-6">{{ "%.1f"|format(d.media) }}</span>
+                {% elif d.media >= 5 %}
+                  <span class="badge bg-warning text-dark px-3 py-2 fs-6">{{ "%.1f"|format(d.media) }}</span>
+                {% else %}
+                  <span class="badge bg-danger px-3 py-2 fs-6">{{ "%.1f"|format(d.media) }}</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <div class="text-center py-5 text-muted">
+          <i class="bi bi-pencil" style="font-size:2rem;opacity:0.3"></i>
+          <p class="mt-2 mb-0">Nenhuma nota lançada ainda.</p>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+</div>
+
+{% if series_chart %}
+<script>
+const ctx = document.getElementById('chartDesempenho').getContext('2d');
+const labels = {{ meses | tojson }};
+const datasets = [
+  {% for s in series_chart %}
+  {
+    label: {{ s.label | tojson }},
+    data: {{ s.data | tojson }},
+    borderColor: '{{ s.cor }}',
+    backgroundColor: '{{ s.cor }}22',
+    tension: 0.3,
+    pointRadius: 4,
+    pointHoverRadius: 6,
+    fill: false,
+    spanGaps: true,
+  },
+  {% endfor %}
+];
+new Chart(ctx, {
+  type: 'line',
+  data: { labels, datasets },
+  options: {
+    responsive: true,
+    plugins: {
+      legend: { position: 'bottom' },
+      tooltip: { mode: 'index', intersect: false },
+    },
+    scales: {
+      y: { min: 0, max: 10, ticks: { stepSize: 1 },
+           grid: { color: '#f0f0f0' } },
+      x: { grid: { color: '#f0f0f0' } },
+    },
+  },
+});
+</script>
+{% endif %}
+
+{% endblock %}

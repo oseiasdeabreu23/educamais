@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ config_sistema.nome }}</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+
+{% if current_user.is_authenticated %}
+
+<!-- Sidebar -->
+<nav class="sidebar">
+  <div class="sidebar-brand">
+    {% if config_sistema.logo_path %}
+    <img src="{{ url_for('static', filename='uploads/' + config_sistema.logo_path) }}"
+         alt="{{ config_sistema.nome }}"
+         style="max-height:48px; max-width:170px; object-fit:contain; margin-bottom:4px; display:block">
+    {% else %}
+    <h4>{{ config_sistema.nome }}</h4>
+    {% endif %}
+    <small>
+      {% if current_user.tipo == 'admin' %}Administrador
+      {% elif current_user.tipo == 'professor' %}Professor
+      {% elif current_user.tipo == 'aluno' %}Aluno
+      {% else %}Responsável{% endif %}
+    </small>
+  </div>
+
+  <div class="sidebar-nav">
+    {% if current_user.tipo == 'admin' %}
+      <div class="sidebar-section-label">Principal</div>
+      <div class="nav-item">
+        <a class="nav-link {% if request.endpoint == 'admin.dashboard' %}active{% endif %}"
+           href="{{ url_for('admin.dashboard') }}">
+          <i class="bi bi-grid-fill"></i> Dashboard
+        </a>
+      </div>
+
+      <div class="sidebar-section-label">Cadastros</div>
+      <div class="nav-item">
+        <a class="nav-link {% if request.endpoint == 'admin.alunos' %}active{% endif %}"
+           href="{{ url_for('admin.alunos') }}">
+          <i class="bi bi-people-fill"></i> Alunos
+        </a>
+      </div>
+      <div class="nav-item">
+        <a class="nav-link {% if request.endpoint == 'admin.turmas' %}active{% endif %}"
+           href="{{ url_for('admin.turmas') }}">
+          <i class="bi bi-collection-fill"></i> Turmas
+        </a>
+      </div>
+      <div class="nav-item">
+        <a class="nav-link {% if request.endpoint == 'admin.disciplinas' %}active{% endif %}"
+           href="{{ url_for('admin.disciplinas') }}">
+          <i class="bi bi-book-fill"></i> Disciplinas
+        </a>
+      </div>
+      <div class="nav-item">
+        <a class="nav-link {% if request.endpoint == 'admin.professores' %}active{% endif %}"
+           href="{{ url_for('admin.professores') }}">
+          <i class="bi bi-person-video3"></i> Professores
+        </a>
+      </div>
+      <div class="nav-item">
+        <a class="nav-link {% if request.endpoint == 'admin.responsaveis' %}active{% endif %}"
+           href="{{ url_for('admin.responsaveis') }}">
+          <i class="bi bi-person-heart"></i> Responsáveis
+        </a>
+      </div>
+
+      <div class="sidebar-section-label">Cursos</div>
+      <div class="nav-item">
+        <a class="nav-link {% if request.endpoint in ('admin.cursos','admin.curso_detalhe') %}active{% endif %}"
+           href="{{ url_for('admin.cursos') }}">
+          <i class="bi bi-play-circle-fill"></i> Cursos
+        </a>
+      </div>
+
+      <div class="sidebar-section-label">Acesso</div>
+      <div class="nav-item">
+        <a class="nav-link {% if request.endpoint == 'admin.usuarios' %}active{% endif %}"
+           href="{{ url_for('admin.usuarios') }}">
+          <i class="bi bi-shield-lock-fill"></i> Usuários
+        </a>
+      </div>
+
+      <div class="sidebar-section-label">Sistema</div>
+      <div class="nav-item">
+        <a class="nav-link {% if request.endpoint == 'admin.configuracoes' %}active{% endif %}"
+           href="{{ url_for('admin.configuracoes') }}">
+          <i class="bi bi-gear-fill"></i> Configurações
+        </a>
+      </div>
+
+    {% elif current_user.tipo == 'professor' %}
+      <div class="sidebar-section-label">Principal</div>
+      <div class="nav-item">
+        <a class="nav-link {% if request.endpoint == 'professor.dashboard' %}active{% endif %}"
+           href="{{ url_for('professor.dashboard') }}">
+          <i class="bi bi-grid-fill"></i> Dashboard
+        </a>
+      </div>
+
+      <div class="sidebar-section-label">Ações</div>
+      <div class="nav-item">
+        <a class="nav-link {% if request.endpoint == 'professor.lancar_nota' %}active{% endif %}"
+           href="{{ url_for('professor.lancar_nota') }}">
+          <i class="bi bi-pencil-fill"></i> Lançar Nota
+        </a>
+      </div>
+      <div class="nav-item">
+        <a class="nav-link {% if request.endpoint == 'professor.registrar_frequencia' %}active{% endif %}"
+           href="{{ url_for('professor.registrar_frequencia') }}">
+          <i class="bi bi-calendar-check-fill"></i> Frequência
+        </a>
+      </div>
+      <div class="nav-item">
+        <a class="nav-link {% if request.endpoint == 'professor.criar_atividade' %}active{% endif %}"
+           href="{{ url_for('professor.criar_atividade') }}">
+          <i class="bi bi-clipboard-fill"></i> Atividades
+        </a>
+      </div>
+      <div class="nav-item">
+        <a class="nav-link {% if request.endpoint == 'professor.observacoes' %}active{% endif %}"
+           href="{{ url_for('professor.observacoes') }}">
+          <i class="bi bi-chat-square-text-fill"></i> Observações
+        </a>
+      </div>
+
+    {% elif current_user.tipo == 'aluno' %}
+      <div class="sidebar-section-label">Principal</div>
+      <div class="nav-item">
+        <a class="nav-link {% if request.endpoint == 'aluno.dashboard' %}active{% endif %}"
+           href="{{ url_for('aluno.dashboard') }}">
+          <i class="bi bi-grid-fill"></i> Dashboard
+        </a>
+      </div>
+
+      <div class="sidebar-section-label">Desempenho</div>
+      <div class="nav-item">
+        <a class="nav-link {% if request.endpoint == 'aluno.boletim' %}active{% endif %}"
+           href="{{ url_for('aluno.boletim') }}">
+          <i class="bi bi-clipboard2-data-fill"></i> Boletim
+        </a>
+      </div>
+      <div class="nav-item">
+        <a class="nav-link {% if request.endpoint == 'aluno.frequencia' %}active{% endif %}"
+           href="{{ url_for('aluno.frequencia') }}">
+          <i class="bi bi-calendar-check-fill"></i> Frequência
+        </a>
+      </div>
+
+      <div class="sidebar-section-label">Aprendizado</div>
+      <div class="nav-item">
+        <a class="nav-link {% if request.endpoint in ('aluno.cursos','aluno.curso_detalhe','aluno.videoaula') %}active{% endif %}"
+           href="{{ url_for('aluno.cursos') }}">
+          <i class="bi bi-play-circle-fill"></i> Meus Cursos
+        </a>
+      </div>
+
+    {% else %}
+      <div class="sidebar-section-label">Principal</div>
+      <div class="nav-item">
+        <a class="nav-link {% if request.endpoint == 'responsavel.dashboard' %}active{% endif %}"
+           href="{{ url_for('responsavel.dashboard') }}">
+          <i class="bi bi-grid-fill"></i> Dashboard
+        </a>
+      </div>
+    {% endif %}
+  </div>
+
+  <div class="sidebar-footer">
+    <div class="nav-item">
+      <a class="nav-link" href="{{ url_for('auth.logout') }}">
+        <i class="bi bi-box-arrow-left"></i> Sair
+      </a>
+    </div>
+  </div>
+</nav>
+
+<!-- Main content -->
+<div class="main-content">
+  <div class="topbar">
+    <h5 class="topbar-title">{% block page_title %}EducaMais{% endblock %}</h5>
+    <div class="topbar-user">
+      <div class="user-avatar">{{ current_user.nome[0].upper() }}</div>
+      <span class="user-name">{{ current_user.nome }}</span>
+    </div>
+  </div>
+
+  <div class="page-content">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+            {{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+          </div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+    {% block content %}{% endblock %}
+  </div>
+</div>
+
+{% endif %}
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>

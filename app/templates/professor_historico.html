@@ -1,0 +1,12 @@
+{% extends 'base.html' %}
+{% block content %}
+<h3>Histórico {{ aluno.nome }}</h3>
+<p>Média: {{ media }}</p>
+{% if queda %}<div class="alert alert-warning">{{ msg }}</div>{% endif %}
+<h5>Notas</h5>
+<table class="table table-sm"><thead><tr><th>Disciplina</th><th>Valor</th><th>Data</th></tr></thead><tbody>{% for n in notas %}<tr><td>{{ n.disciplina.nome }}</td><td>{{ n.valor }}</td><td>{{ n.data }}</td></tr>{% endfor %}</tbody></table>
+<h5>Frequência</h5>
+<table class="table table-sm"><thead><tr><th>Data</th><th>Status</th></tr></thead><tbody>{% for f in frequencias %}<tr><td>{{ f.data }}</td><td>{{ f.status }}</td></tr>{% endfor %}</tbody></table>
+<h5>Observações</h5>
+<ul class="list-group">{% for o in observacoes %}<li class="list-group-item">{{ o.data }} - {{ o.texto }}</li>{% endfor %}</ul>
+{% endblock %}

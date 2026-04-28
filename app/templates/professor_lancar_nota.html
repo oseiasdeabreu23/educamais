@@ -1,0 +1,328 @@
+{% extends 'base.html' %}
+{% block page_title %}Lançar Notas{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <h2>Lançar Notas</h2>
+  <p>Selecione a turma e disciplina para iniciar o lançamento</p>
+</div>
+
+<!-- Filtros -->
+<div class="card mb-4">
+  <div class="card-body">
+    <form method="GET" action="{{ url_for('professor.lancar_nota') }}" class="row g-3 align-items-end">
+      <div class="col-md-3">
+        <label class="form-label">Turma</label>
+        <select class="form-select" name="turma_id" onchange="this.form.submit()">
+          <option value="">Selecionar turma...</option>
+          {% for t in turmas %}
+          <option value="{{ t.id }}" {% if turma_id == t.id %}selected{% endif %}>{{ t.nome }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Disciplina</label>
+        <select class="form-select" name="disciplina_id" onchange="this.form.submit()">
+          <option value="">Selecionar disciplina...</option>
+          {% for d in disciplinas %}
+          <option value="{{ d.id }}" {% if disciplina_id == d.id %}selected{% endif %}>{{ d.nome }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">Ano</label>
+        <select class="form-select" name="ano" onchange="this.form.submit()">
+          {% for a in anos %}
+          <option value="{{ a }}" {% if ano == a %}selected{% endif %}>{{ a }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      {% if turma_id and disciplina_id %}
+      <div class="col-md-4">
+        <label class="form-label d-block">&nbsp;</label>
+        <a href="{{ url_for('professor.exportar_notas', turma_id=turma_id, disciplina_id=disciplina_id, ano=ano) }}"
+           class="btn btn-outline-success w-100">
+          <i class="bi bi-file-earmark-excel me-1"></i> Exportar Excel ({{ ano }})
+        </a>
+      </div>
+      {% endif %}
+    </form>
+  </div>
+</div>
+
+{% if turma_id and disciplina_id %}
+{% if alunos_data %}
+
+<form method="POST" action="{{ url_for('professor.lancar_nota') }}" id="formNotas">
+  <input type="hidden" name="turma_id" value="{{ turma_id }}">
+  <input type="hidden" name="disciplina_id" value="{{ disciplina_id }}">
+  <input type="hidden" name="ano" value="{{ ano }}">
+  {% for item in alunos_data %}
+  <input type="hidden" name="aluno_ids" value="{{ item.aluno.id }}">
+  {% endfor %}
+
+  <div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+      <span>
+        <i class="bi bi-table me-2"></i>
+        <strong>{{ turmas | selectattr('id','eq',turma_id) | first | attr('nome') }}</strong>
+        &nbsp;·&nbsp;
+        <strong>{{ disciplinas | selectattr('id','eq',disciplina_id) | first | attr('nome') }}</strong>
+        &nbsp;·&nbsp;
+        <span class="badge bg-primary" style="font-size:0.8rem">{{ ano }}</span>
+        <span class="text-muted ms-2" style="font-size:0.82rem">{{ alunos_data|length }} alunos</span>
+      </span>
+      <div class="d-flex gap-2">
+        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="limparTodos()">
+          <i class="bi bi-x-circle me-1"></i>Limpar
+        </button>
+      </div>
+    </div>
+
+    <div class="card-body p-0">
+      <div class="table-responsive">
+        <table class="table table-notas mb-0" id="tabelaNotas">
+          <thead>
+            <tr>
+              <th class="col-aluno sticky-col">Aluno</th>
+              {% for m in meses %}
+              <th class="text-center col-mes">{{ m }}</th>
+              {% endfor %}
+              <th class="text-center col-media">Média</th>
+              <th class="text-center col-status">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in alunos_data %}
+            <tr id="row-{{ item.aluno.id }}">
+              <td class="sticky-col">
+                <a href="{{ url_for('professor.historico_aluno', aluno_id=item.aluno.id) }}"
+                   class="text-decoration-none d-flex align-items-center gap-2">
+                  <div class="user-avatar" style="width:28px;height:28px;font-size:0.7rem;flex-shrink:0">
+                    {{ item.aluno.nome[0].upper() }}
+                  </div>
+                  <span class="fw-medium text-truncate" style="max-width:140px">{{ item.aluno.nome }}</span>
+                  <i class="bi bi-box-arrow-up-right text-muted" style="font-size:0.65rem"></i>
+                </a>
+              </td>
+              {% for i in range(1, 13) %}
+              <td class="text-center p-1">
+                <input type="number"
+                       name="nota_{{ item.aluno.id }}_{{ i }}"
+                       class="nota-input"
+                       data-aluno="{{ item.aluno.id }}"
+                       data-mes="{{ i }}"
+                       min="0" max="10" step="0.1"
+                       value="{{ '%.1f'|format(item.notas_mes[i]) if i in item.notas_mes else '' }}"
+                       placeholder="—"
+                       oninput="atualizarLinha({{ item.aluno.id }})">
+              </td>
+              {% endfor %}
+              <td class="text-center fw-bold" id="media-{{ item.aluno.id }}">
+                {% if item.media is not none %}{{ '%.1f'|format(item.media) }}{% else %}—{% endif %}
+              </td>
+              <td class="text-center" id="status-{{ item.aluno.id }}">
+                {% if item.media is not none %}
+                  {% if item.media < 5 %}<span class="badge badge-abaixo">Abaixo da média</span>
+                  {% elif item.media < 7 %}<span class="badge badge-namedia">Na média</span>
+                  {% else %}<span class="badge badge-acima">Acima da média</span>{% endif %}
+                {% else %}
+                  <span class="badge bg-secondary">Sem notas</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+          <tfoot>
+            <tr class="table-light">
+              <td class="sticky-col fw-bold text-muted" style="font-size:0.8rem">Média da turma</td>
+              {% for i in range(1, 13) %}
+              <td class="text-center fw-bold" id="med-mes-{{ i }}" style="font-size:0.8rem">—</td>
+              {% endfor %}
+              <td class="text-center fw-bold" id="med-geral">
+                {% set ms = alunos_data | selectattr('media') | map(attribute='media') | list %}
+                {% if ms %}{{ '%.1f'|format(ms|sum / ms|length) }}{% else %}—{% endif %}
+              </td>
+              <td></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+
+    <div class="card-footer d-flex justify-content-between align-items-center flex-wrap gap-2">
+      <div class="d-flex gap-3" style="font-size:0.82rem">
+        <span><span class="badge badge-abaixo">●</span> Abaixo &lt; 5,0</span>
+        <span><span class="badge badge-namedia">●</span> Na média 5,0–6,9</span>
+        <span><span class="badge badge-acima">●</span> Acima ≥ 7,0</span>
+      </div>
+      <button type="submit" class="btn btn-primary">
+        <i class="bi bi-check-all me-1"></i>Salvar todas as notas
+      </button>
+    </div>
+  </div>
+</form>
+
+{% else %}
+<div class="card">
+  <div class="card-body text-center py-5 text-muted">
+    <i class="bi bi-people" style="font-size:2.5rem;opacity:0.3"></i>
+    <p class="mt-3 mb-0">Nenhum aluno cadastrado nesta turma.</p>
+  </div>
+</div>
+{% endif %}
+
+{% else %}
+<div class="card">
+  <div class="card-body text-center py-5 text-muted">
+    <i class="bi bi-funnel" style="font-size:2.5rem;opacity:0.3"></i>
+    <p class="mt-3 mb-0">Selecione uma turma e disciplina para ver os alunos.</p>
+  </div>
+</div>
+{% endif %}
+
+
+<style>
+/* tabela compacta estilo planilha */
+.table-notas { border-collapse: separate; border-spacing: 0; font-size: 0.85rem; }
+.table-notas thead th {
+  background: #f1f5f9;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  white-space: nowrap;
+  padding: 8px 4px;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+.table-notas tbody td { vertical-align: middle; padding: 4px; }
+.table-notas tbody tr:hover { background: #f8fafc; }
+.col-aluno  { min-width: 180px; }
+.col-mes    { width: 62px; }
+.col-media  { width: 70px; }
+.col-status { width: 130px; }
+
+/* coluna aluno fixa à esquerda */
+.sticky-col {
+  position: sticky;
+  left: 0;
+  background: #fff;
+  z-index: 1;
+  border-right: 2px solid #e2e8f0 !important;
+}
+.table-notas thead .sticky-col { z-index: 3; background: #f1f5f9; }
+.table-notas tfoot .sticky-col  { background: #f8fafc; }
+
+/* input das notas */
+.nota-input {
+  width: 54px;
+  padding: 3px 4px;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 5px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-align: center;
+  background: transparent;
+  transition: border-color .15s, background .15s;
+  -moz-appearance: textfield;
+}
+.nota-input::-webkit-outer-spin-button,
+.nota-input::-webkit-inner-spin-button { -webkit-appearance: none; }
+.nota-input:focus {
+  outline: none;
+  border-color: var(--primary, #6366f1);
+  box-shadow: 0 0 0 3px rgba(99,102,241,.15);
+}
+.nota-input.n-baixa  { border-color: #ef4444; background: #fff5f5; color: #c53030; }
+.nota-input.n-media  { border-color: #f59e0b; background: #fffbeb; color: #92400e; }
+.nota-input.n-alta   { border-color: #10b981; background: #f0fdf4; color: #065f46; }
+
+.badge-abaixo { background: #ef4444 !important; }
+.badge-namedia { background: #f59e0b !important; }
+.badge-acima   { background: #10b981 !important; }
+</style>
+
+<script>
+function corInput(inp, val) {
+  inp.classList.remove('n-baixa','n-media','n-alta');
+  if (!isNaN(val) && inp.value !== '') {
+    if (val < 5)      inp.classList.add('n-baixa');
+    else if (val < 7) inp.classList.add('n-media');
+    else              inp.classList.add('n-alta');
+  }
+}
+
+function atualizarLinha(alunoId) {
+  const inputs = document.querySelectorAll(`.nota-input[data-aluno="${alunoId}"]`);
+  let soma = 0, qtd = 0;
+  inputs.forEach(inp => {
+    const v = parseFloat(inp.value);
+    corInput(inp, v);
+    if (!isNaN(v) && inp.value !== '') { soma += v; qtd++; }
+  });
+
+  const mediaEl  = document.getElementById(`media-${alunoId}`);
+  const statusEl = document.getElementById(`status-${alunoId}`);
+
+  if (qtd > 0) {
+    const media = soma / qtd;
+    mediaEl.textContent = media.toFixed(1);
+    let cls, label;
+    if (media < 5)      { cls = 'badge-abaixo'; label = 'Abaixo da média'; }
+    else if (media < 7) { cls = 'badge-namedia'; label = 'Na média'; }
+    else                { cls = 'badge-acima';   label = 'Acima da média'; }
+    statusEl.innerHTML = `<span class="badge ${cls}">${label}</span>`;
+  } else {
+    mediaEl.textContent = '—';
+    statusEl.innerHTML = '<span class="badge bg-secondary">Sem notas</span>';
+  }
+
+  atualizarMediaMes();
+}
+
+function atualizarMediaMes() {
+  for (let mes = 1; mes <= 12; mes++) {
+    const inputs = document.querySelectorAll(`.nota-input[data-mes="${mes}"]`);
+    let soma = 0, qtd = 0;
+    inputs.forEach(inp => {
+      const v = parseFloat(inp.value);
+      if (!isNaN(v) && inp.value !== '') { soma += v; qtd++; }
+    });
+    document.getElementById(`med-mes-${mes}`).textContent = qtd ? (soma/qtd).toFixed(1) : '—';
+  }
+  // média geral (das médias dos alunos)
+  const medias = [];
+  document.querySelectorAll('[id^="media-"]').forEach(el => {
+    const v = parseFloat(el.textContent);
+    if (!isNaN(v)) medias.push(v);
+  });
+  const g = document.getElementById('med-geral');
+  if (g) g.textContent = medias.length ? (medias.reduce((a,b)=>a+b,0)/medias.length).toFixed(1) : '—';
+}
+
+function limparTodos() {
+  if (!confirm('Limpar todos os campos da tabela?')) return;
+  document.querySelectorAll('.nota-input').forEach(inp => {
+    inp.value = '';
+    inp.classList.remove('n-baixa','n-media','n-alta');
+  });
+  document.querySelectorAll('[id^="media-"]').forEach(el => el.textContent = '—');
+  document.querySelectorAll('[id^="status-"]').forEach(el => {
+    el.innerHTML = '<span class="badge bg-secondary">Sem notas</span>';
+  });
+  atualizarMediaMes();
+}
+
+// inicializar cores ao carregar
+document.addEventListener('DOMContentLoaded', () => {
+  const alunoIds = new Set();
+  document.querySelectorAll('.nota-input').forEach(inp => {
+    alunoIds.add(inp.dataset.aluno);
+    if (inp.value) corInput(inp, parseFloat(inp.value));
+  });
+  alunoIds.forEach(id => atualizarLinha(id));
+});
+</script>
+
+{% endblock %}

@@ -1,0 +1,102 @@
+{% extends 'base.html' %}
+{% block page_title %}Boletim{% endblock %}
+{% block content %}
+
+<div class="page-header d-flex justify-content-between align-items-start flex-wrap gap-3">
+  <div>
+    <h2>Boletim Escolar</h2>
+    <p>{{ aluno.nome }} · {{ aluno.turma.nome if aluno.turma else 'Sem turma' }}</p>
+  </div>
+  <form method="GET" class="d-flex align-items-center gap-2">
+    <label class="form-label mb-0 text-muted small">Ano:</label>
+    <select name="ano" class="form-select form-select-sm" style="width:auto"
+            onchange="this.form.submit()">
+      {% for a in anos_disponiveis %}
+      <option value="{{ a }}" {% if a == ano %}selected{% endif %}>{{ a }}</option>
+      {% endfor %}
+    </select>
+  </form>
+</div>
+
+{% if boletim_data %}
+<div class="card">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-bordered mb-0" style="font-size:0.85rem">
+        <thead class="table-light">
+          <tr>
+            <th style="min-width:150px">Disciplina</th>
+            {% for m in meses %}
+            <th class="text-center" style="min-width:50px">{{ m }}</th>
+            {% endfor %}
+            <th class="text-center" style="min-width:70px">Média</th>
+            <th class="text-center" style="min-width:90px">Situação</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in boletim_data %}
+          <tr>
+            <td class="fw-500">{{ item.disciplina.nome }}</td>
+            {% for val in item.notas %}
+            <td class="text-center">
+              {% if val is not none %}
+                {% if val >= 7 %}
+                  <span class="badge bg-success">{{ "%.1f"|format(val) }}</span>
+                {% elif val >= 5 %}
+                  <span class="badge bg-warning text-dark">{{ "%.1f"|format(val) }}</span>
+                {% else %}
+                  <span class="badge bg-danger">{{ "%.1f"|format(val) }}</span>
+                {% endif %}
+              {% else %}
+                <span class="text-muted">–</span>
+              {% endif %}
+            </td>
+            {% endfor %}
+            <td class="text-center">
+              {% if item.media is not none %}
+                {% if item.media >= 7 %}
+                  <strong class="text-success">{{ "%.1f"|format(item.media) }}</strong>
+                {% elif item.media >= 5 %}
+                  <strong class="text-warning">{{ "%.1f"|format(item.media) }}</strong>
+                {% else %}
+                  <strong class="text-danger">{{ "%.1f"|format(item.media) }}</strong>
+                {% endif %}
+              {% else %}
+                <span class="text-muted">–</span>
+              {% endif %}
+            </td>
+            <td class="text-center">
+              {% if item.media is not none %}
+                {% if item.media >= 7 %}
+                  <span class="badge bg-success">Aprovado</span>
+                {% elif item.media >= 5 %}
+                  <span class="badge bg-warning text-dark">Recuperação</span>
+                {% else %}
+                  <span class="badge bg-danger">Reprovado</span>
+                {% endif %}
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="d-flex gap-3 mt-3 flex-wrap">
+  <span class="badge bg-success px-3 py-2">≥ 7.0 Aprovado</span>
+  <span class="badge bg-warning text-dark px-3 py-2">5.0–6.9 Recuperação</span>
+  <span class="badge bg-danger px-3 py-2">&lt; 5.0 Reprovado</span>
+</div>
+
+{% else %}
+<div class="card">
+  <div class="card-body text-center py-5 text-muted">
+    <i class="bi bi-clipboard2-x" style="font-size:2.5rem;opacity:0.3"></i>
+    <p class="mt-3 mb-0">Nenhuma nota registrada para {{ ano }}.</p>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}

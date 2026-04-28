@@ -1,0 +1,181 @@
+{% extends 'base.html' %}
+{% block page_title %}Professores{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <h2>Professores</h2>
+  <p>Cadastre e gerencie os professores</p>
+</div>
+
+<div class="row g-4">
+
+  <!-- Formulário -->
+  <div class="col-lg-4">
+    <div class="card">
+      <div class="card-header"><i class="bi bi-person-video3 me-2"></i>Novo Professor</div>
+      <div class="card-body">
+        <form method="POST" action="{{ url_for('admin.professores') }}">
+          <div class="mb-3">
+            <label class="form-label">Nome completo</label>
+            <input class="form-control" name="nome" placeholder="Ex: Carlos Pereira" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Turma responsável</label>
+            <select class="form-select" name="turma_id">
+              <option value="">Sem turma</option>
+              {% for t in turmas %}
+              <option value="{{ t.id }}">{{ t.nome }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="mb-4">
+            <label class="form-label">
+              Disciplinas
+              <small class="text-muted">(Ctrl para selecionar mais de uma)</small>
+            </label>
+            {% if disciplinas %}
+            <select class="form-select" name="disciplina_ids" multiple style="min-height:110px">
+              {% for d in disciplinas %}
+              <option value="{{ d.id }}">{{ d.nome }}</option>
+              {% endfor %}
+            </select>
+            {% else %}
+            <div class="text-muted small p-2 border rounded">
+              Nenhuma disciplina cadastrada ainda.
+            </div>
+            {% endif %}
+          </div>
+          <button type="submit" class="btn btn-primary w-100">
+            <i class="bi bi-plus-circle me-1"></i> Cadastrar
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tabela -->
+  <div class="col-lg-8">
+    <div class="card">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-people-fill me-2"></i>Professores cadastrados</span>
+        <span class="badge bg-secondary">{{ professores | length }}</span>
+      </div>
+      <div class="card-body p-0">
+        {% if professores %}
+        <table class="table mb-0">
+          <thead>
+            <tr>
+              <th>Nome</th>
+              <th>Turma</th>
+              <th>Disciplinas</th>
+              <th style="width:100px"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for p in professores %}
+            <tr>
+              <td>
+                <div class="d-flex align-items-center gap-2">
+                  <div class="user-avatar" style="width:30px;height:30px;font-size:0.75rem">
+                    {{ p.nome[0].upper() }}
+                  </div>
+                  {{ p.nome }}
+                </div>
+              </td>
+              <td>
+                {% if p.turma %}
+                  <span class="badge badge-responsavel">{{ p.turma.nome }}</span>
+                {% else %}
+                  <span class="text-muted">—</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if p.disciplinas %}
+                  {% for d in p.disciplinas %}
+                    <span class="badge badge-professor">{{ d.nome }}</span>
+                  {% endfor %}
+                {% else %}
+                  <span class="text-muted">—</span>
+                {% endif %}
+              </td>
+              <td>
+                <div class="table-actions">
+                  <button class="btn btn-sm btn-outline-primary"
+                          data-bs-toggle="modal"
+                          data-bs-target="#editModal{{ p.id }}">
+                    <i class="bi bi-pencil"></i>
+                  </button>
+                  <form method="POST" action="{{ url_for('admin.excluir_professor', id=p.id) }}"
+                        onsubmit="return confirm('Excluir professor {{ p.nome }}?')">
+                    <button type="submit" class="btn btn-sm btn-danger">
+                      <i class="bi bi-trash"></i>
+                    </button>
+                  </form>
+                </div>
+              </td>
+            </tr>
+
+            <!-- Modal editar professor -->
+            <div class="modal fade" id="editModal{{ p.id }}" tabindex="-1">
+              <div class="modal-dialog">
+                <div class="modal-content">
+                  <div class="modal-header">
+                    <h5 class="modal-title">Editar Professor</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                  </div>
+                  <form method="POST" action="{{ url_for('admin.editar_professor', id=p.id) }}">
+                    <div class="modal-body">
+                      <div class="mb-3">
+                        <label class="form-label">Nome completo</label>
+                        <input class="form-control" name="nome" value="{{ p.nome }}" required>
+                      </div>
+                      <div class="mb-3">
+                        <label class="form-label">Turma responsável</label>
+                        <select class="form-select" name="turma_id">
+                          <option value="">Sem turma</option>
+                          {% for t in turmas %}
+                          <option value="{{ t.id }}" {% if p.turma_id == t.id %}selected{% endif %}>
+                            {{ t.nome }}
+                          </option>
+                          {% endfor %}
+                        </select>
+                      </div>
+                      <div class="mb-3">
+                        <label class="form-label">
+                          Disciplinas
+                          <small class="text-muted">(Ctrl para múltiplas)</small>
+                        </label>
+                        <select class="form-select" name="disciplina_ids" multiple style="min-height:110px">
+                          {% set ids_atuais = p.disciplinas | map(attribute='id') | list %}
+                          {% for d in disciplinas %}
+                          <option value="{{ d.id }}" {% if d.id in ids_atuais %}selected{% endif %}>
+                            {{ d.nome }}
+                          </option>
+                          {% endfor %}
+                        </select>
+                      </div>
+                    </div>
+                    <div class="modal-footer">
+                      <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                      <button type="submit" class="btn btn-primary">Salvar</button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            </div>
+
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <div class="text-center py-5 text-muted">
+          <i class="bi bi-person-video3" style="font-size:2rem; opacity:0.3"></i>
+          <p class="mt-2 mb-0">Nenhum professor cadastrado ainda.</p>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}

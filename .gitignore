@@ -1,0 +1,33 @@
+# Ambiente virtual
+venv/
+Include/
+Lib/
+pyvenv.cfg
+
+# Banco de dados local
+instance/
+
+# Cache Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Configurações do editor / IDE
+.vscode/
+.idea/
+
+# Claude Code
+.claude/
+
+# Uploads de usuários (logos etc.)
+app/static/uploads/
+
+# Variáveis de ambiente
+.env
+.env.*
+
+# Sistema operacional
+.DS_Store
+Thumbs.db

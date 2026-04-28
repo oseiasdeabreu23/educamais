@@ -1,0 +1,110 @@
+{% extends 'base.html' %}
+{% block page_title %}Responsáveis{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <h2>Responsáveis</h2>
+  <p>Cadastre os responsáveis e vincule-os aos alunos</p>
+</div>
+
+<div class="row g-4">
+
+  <!-- Formulário -->
+  <div class="col-lg-4">
+    <div class="card">
+      <div class="card-header"><i class="bi bi-person-heart me-2"></i>Novo Responsável</div>
+      <div class="card-body">
+        <form method="POST" action="{{ url_for('admin.responsaveis') }}">
+          <div class="mb-3">
+            <label class="form-label">Nome completo</label>
+            <input class="form-control" name="nome" placeholder="Ex: Ana Souza" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Telefone</label>
+            <input class="form-control" name="telefone" placeholder="(00) 00000-0000" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">
+              E-mail
+              <small class="text-muted">(usado para login)</small>
+            </label>
+            <input class="form-control" type="email" name="email"
+                   placeholder="responsavel@email.com">
+          </div>
+          <div class="mb-4">
+            <label class="form-label">
+              Alunos vinculados
+              <small class="text-muted">(segure Ctrl para selecionar mais de um)</small>
+            </label>
+            {% if alunos %}
+            <select class="form-select" name="aluno_ids" multiple
+                    style="min-height: 110px;">
+              {% for a in alunos %}
+              <option value="{{ a.id }}">
+                {{ a.nome }}{% if a.turma %} — {{ a.turma.nome }}{% endif %}
+              </option>
+              {% endfor %}
+            </select>
+            {% else %}
+            <div class="text-muted small p-2 border rounded">
+              Nenhum aluno cadastrado ainda.
+            </div>
+            {% endif %}
+          </div>
+          <button type="submit" class="btn btn-primary w-100">
+            <i class="bi bi-plus-circle me-1"></i> Cadastrar
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tabela -->
+  <div class="col-lg-8">
+    <div class="card">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-people-fill me-2"></i>Responsáveis cadastrados</span>
+        <span class="badge bg-secondary">{{ responsaveis | length }}</span>
+      </div>
+      <div class="card-body p-0">
+        {% if responsaveis %}
+        <table class="table mb-0">
+          <thead>
+            <tr>
+              <th>Nome</th>
+              <th>Telefone</th>
+              <th>E-mail</th>
+              <th>Alunos</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in responsaveis %}
+            <tr>
+              <td>{{ r.nome }}</td>
+              <td class="text-muted">{{ r.telefone }}</td>
+              <td class="text-muted">{{ r.email or '—' }}</td>
+              <td>
+                {% if r.alunos %}
+                  {% for a in r.alunos %}
+                    <span class="badge badge-responsavel">{{ a.nome }}</span>
+                  {% endfor %}
+                {% else %}
+                  <span class="text-muted">—</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <div class="text-center py-5 text-muted">
+          <i class="bi bi-person-heart" style="font-size:2rem; opacity:0.3"></i>
+          <p class="mt-2 mb-0">Nenhum responsável cadastrado ainda.</p>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}

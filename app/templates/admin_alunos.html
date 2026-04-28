@@ -1,0 +1,144 @@
+{% extends 'base.html' %}
+{% block page_title %}Alunos{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <h2>Alunos</h2>
+  <p>Cadastre e gerencie os alunos da escola</p>
+</div>
+
+<div class="row g-4">
+
+  <!-- Formulário de cadastro -->
+  <div class="col-lg-4">
+    <div class="card">
+      <div class="card-header"><i class="bi bi-person-plus-fill me-2"></i>Novo Aluno</div>
+      <div class="card-body">
+        <form method="POST" action="{{ url_for('admin.alunos') }}">
+          <div class="mb-3">
+            <label class="form-label">Nome completo</label>
+            <input class="form-control" name="nome" placeholder="Ex: João da Silva" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Data de nascimento</label>
+            <input class="form-control" type="date" name="data_nascimento" required>
+          </div>
+          <div class="mb-4">
+            <label class="form-label">Turma</label>
+            <select class="form-select" name="turma_id">
+              <option value="">Sem turma</option>
+              {% for t in turmas %}
+              <option value="{{ t.id }}">{{ t.nome }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <button type="submit" class="btn btn-primary w-100">
+            <i class="bi bi-plus-circle me-1"></i> Cadastrar
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tabela -->
+  <div class="col-lg-8">
+    <div class="card">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-people-fill me-2"></i>Alunos cadastrados</span>
+        <span class="badge bg-secondary">{{ alunos | length }}</span>
+      </div>
+      <div class="card-body p-0">
+        {% if alunos %}
+        <table class="table mb-0">
+          <thead>
+            <tr>
+              <th>Nome</th>
+              <th>Nascimento</th>
+              <th>Turma</th>
+              <th style="width:100px"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for a in alunos %}
+            <tr>
+              <td>{{ a.nome }}</td>
+              <td class="text-muted">{{ a.data_nascimento }}</td>
+              <td>
+                {% if a.turma %}
+                  <span class="badge badge-professor">{{ a.turma.nome }}</span>
+                {% else %}
+                  <span class="text-muted">—</span>
+                {% endif %}
+              </td>
+              <td>
+                <div class="table-actions">
+                  <button class="btn btn-sm btn-outline-primary"
+                          data-bs-toggle="modal"
+                          data-bs-target="#editModal{{ a.id }}">
+                    <i class="bi bi-pencil"></i>
+                  </button>
+                  <form method="POST" action="{{ url_for('admin.excluir_aluno', id=a.id) }}"
+                        onsubmit="return confirm('Excluir {{ a.nome }}?')">
+                    <button type="submit" class="btn btn-sm btn-danger">
+                      <i class="bi bi-trash"></i>
+                    </button>
+                  </form>
+                </div>
+              </td>
+            </tr>
+
+            <!-- Modal editar aluno -->
+            <div class="modal fade" id="editModal{{ a.id }}" tabindex="-1">
+              <div class="modal-dialog">
+                <div class="modal-content">
+                  <div class="modal-header">
+                    <h5 class="modal-title">Editar Aluno</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                  </div>
+                  <form method="POST" action="{{ url_for('admin.editar_aluno', id=a.id) }}">
+                    <div class="modal-body">
+                      <div class="mb-3">
+                        <label class="form-label">Nome completo</label>
+                        <input class="form-control" name="nome" value="{{ a.nome }}" required>
+                      </div>
+                      <div class="mb-3">
+                        <label class="form-label">Data de nascimento</label>
+                        <input class="form-control" type="date" name="data_nascimento"
+                               value="{{ a.data_nascimento }}" required>
+                      </div>
+                      <div class="mb-3">
+                        <label class="form-label">Turma</label>
+                        <select class="form-select" name="turma_id">
+                          <option value="">Sem turma</option>
+                          {% for t in turmas %}
+                          <option value="{{ t.id }}" {% if a.turma_id == t.id %}selected{% endif %}>
+                            {{ t.nome }}
+                          </option>
+                          {% endfor %}
+                        </select>
+                      </div>
+                    </div>
+                    <div class="modal-footer">
+                      <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                      <button type="submit" class="btn btn-primary">Salvar</button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            </div>
+
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <div class="text-center py-5 text-muted">
+          <i class="bi bi-people" style="font-size:2rem; opacity:0.3"></i>
+          <p class="mt-2 mb-0">Nenhum aluno cadastrado ainda.</p>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}

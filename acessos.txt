@@ -1,0 +1,4 @@
+cd "C:\Users\oseia\OneDrive\Área de Trabalho\EducaMais"
+.\venv\Scripts\Activate.ps1
+pip install --upgrade pip setuptools wheel
+pip install -r requirements.txt
