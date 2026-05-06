@@ -370,9 +370,10 @@
 {% endif %}
 
 <style>
-/* tabela de frequência */
+/* tabela de frequência (usa tokens do design system) */
 .table-freq thead th {
-  background: #f1f5f9;
+  background: var(--surface-2);
+  color: var(--text-3);
   font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: .04em;
@@ -380,10 +381,10 @@
   padding: 8px 10px;
 }
 .table-freq tbody tr { transition: background .15s; }
-.table-freq tbody tr:hover { background: #f8fafc; }
-.table-freq tbody tr.status-presente { background: #f0fdf4; }
-.table-freq tbody tr.status-falta    { background: #fff5f5; }
-.table-freq tbody tr.status-justificada { background: #fffbeb; }
+.table-freq tbody tr:hover { background: var(--surface-2); }
+.table-freq tbody tr.status-presente    { background: var(--score-ok-bg); }
+.table-freq tbody tr.status-falta       { background: var(--score-bad-bg); }
+.table-freq tbody tr.status-justificada { background: var(--score-warn-bg); }
 
 .status-col { width: 90px; }
 
@@ -396,22 +397,23 @@
   width: 36px;
   height: 36px;
   border-radius: 50%;
-  border: 2px solid #e2e8f0;
+  border: 2px solid var(--border-strong);
+  background: var(--surface);
   transition: all .15s;
 }
 .freq-label input[type=radio] { display: none; }
 .freq-dot {
   width: 14px; height: 14px;
   border-radius: 50%;
-  background: #e2e8f0;
+  background: var(--border-strong);
   transition: background .15s;
 }
-.freq-presente:has(input:checked) { border-color: #10b981; background: #d1fae5; }
-.freq-presente:has(input:checked) .freq-dot { background: #10b981; }
-.freq-falta:has(input:checked)    { border-color: #ef4444; background: #fee2e2; }
-.freq-falta:has(input:checked) .freq-dot    { background: #ef4444; }
-.freq-justificada:has(input:checked) { border-color: #f59e0b; background: #fef3c7; }
-.freq-justificada:has(input:checked) .freq-dot { background: #f59e0b; }
+.freq-presente:has(input:checked)    { border-color: var(--ok);   background: var(--score-ok-bg); }
+.freq-presente:has(input:checked) .freq-dot    { background: var(--ok); }
+.freq-falta:has(input:checked)       { border-color: var(--bad);  background: var(--score-bad-bg); }
+.freq-falta:has(input:checked) .freq-dot       { background: var(--bad); }
+.freq-justificada:has(input:checked) { border-color: var(--warn); background: var(--score-warn-bg); }
+.freq-justificada:has(input:checked) .freq-dot { background: var(--warn); }
 
 .freq-label:hover { transform: scale(1.15); }
 
@@ -420,13 +422,16 @@
   border-radius: 10px;
   padding: 14px 16px;
   text-align: center;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
 }
 .stat-mini-valor { font-size: 1.8rem; font-weight: 700; line-height: 1; }
-.stat-mini-label { font-size: 0.78rem; color: #64748b; margin-top: 4px; }
+.stat-mini-label { font-size: 0.78rem; color: var(--text-3); margin-top: 4px; }
 
-.badge-abaixo { background: #ef4444 !important; color: #fff; }
-.badge-namedia { background: #f59e0b !important; color: #fff; }
-.badge-acima   { background: #10b981 !important; color: #fff; }
+.badge-abaixo  { background: var(--bad)  !important; color: #fff !important; }
+.badge-namedia { background: var(--warn) !important; color: #fff !important; }
+.badge-acima   { background: var(--ok)   !important; color: #fff !important; }
 .alerta-pill { cursor: default; }
 </style>
 

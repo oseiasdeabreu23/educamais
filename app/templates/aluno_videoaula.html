@@ -1,119 +1,111 @@
 {% extends 'base.html' %}
 {% block page_title %}{{ video.titulo }}{% endblock %}
+{% block page_subtitle %}<div class="topbar-sub">{{ curso.titulo }} · {{ video.modulo.titulo }}</div>{% endblock %}
 {% block content %}
 
-<div class="page-header">
-  <nav aria-label="breadcrumb">
-    <ol class="breadcrumb mb-1">
-      <li class="breadcrumb-item"><a href="{{ url_for('aluno.cursos') }}">Meus Cursos</a></li>
-      <li class="breadcrumb-item"><a href="{{ url_for('aluno.curso_detalhe', curso_id=curso.id) }}">{{ curso.titulo }}</a></li>
-      <li class="breadcrumb-item active">{{ video.titulo }}</li>
-    </ol>
-  </nav>
-</div>
+<nav aria-label="breadcrumb">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="{{ url_for('aluno.cursos') }}">Meus cursos</a></li>
+    <li class="breadcrumb-item"><a href="{{ url_for('aluno.curso_detalhe', curso_id=curso.id) }}">{{ curso.titulo }}</a></li>
+    <li class="breadcrumb-item active">{{ video.titulo }}</li>
+  </ol>
+</nav>
 
-<div class="row g-4">
+<div class="row g-3">
 
-  {# ── Player ── #}
+  {# ── Player + info ── #}
   <div class="col-lg-8">
-    <div class="card">
-      <div class="card-body p-0" style="border-radius:8px; overflow:hidden">
-        <div style="position:relative; padding-top:56.25%; background:#000">
-          <iframe src="{{ player_url }}"
-                  style="position:absolute; top:0; left:0; width:100%; height:100%; border:0"
-                  allowfullscreen
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture">
-          </iframe>
-        </div>
-      </div>
+    <div style="aspect-ratio: 16/9; background:#000; border-radius: var(--r-lg); overflow:hidden;
+                position:relative; border:1px solid var(--border)">
+      <iframe src="{{ player_url }}"
+              style="position:absolute; inset:0; width:100%; height:100%; border:0"
+              allowfullscreen
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture">
+      </iframe>
     </div>
 
-    {# Info + ações #}
-    <div class="card mt-3">
-      <div class="card-body">
-        <div class="d-flex align-items-start justify-content-between flex-wrap gap-3">
-          <div>
-            <h5 class="mb-1 fw-600">{{ video.titulo }}</h5>
-            <div class="text-muted small">
-              <i class="bi bi-collection-play me-1"></i>{{ video.modulo.titulo }}
-              {% if video.duracao_min %}
-              · <i class="bi bi-clock me-1"></i>{{ video.duracao_min }} min
-              {% endif %}
-            </div>
-          </div>
-          <form method="POST"
-                action="{{ url_for('aluno.marcar_assistida', video_id=video.id) }}">
-            {% if assistido %}
-            <button type="submit" class="btn btn-success">
-              <i class="bi bi-check-circle-fill me-1"></i> Concluída
-            </button>
-            {% else %}
-            <button type="submit" class="btn btn-outline-primary">
-              <i class="bi bi-circle me-1"></i> Marcar como concluída
-            </button>
+    {# Informações + ações #}
+    <div class="card" style="margin-top:16px">
+      <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+        <div style="min-width:0">
+          <div class="eyebrow dim">Aula · {{ video.modulo.titulo }}</div>
+          <h2 style="font-size:22px; margin-top:6px">{{ video.titulo }}</h2>
+          <div class="d-flex align-items-center gap-2 mt-2" style="font-size:12.5px; color:var(--text-2)">
+            {% if video.duracao_min %}
+            <i class="bi bi-clock"></i> {{ video.duracao_min }} min
             {% endif %}
-          </form>
+          </div>
         </div>
+        <form method="POST"
+              action="{{ url_for('aluno.marcar_assistida', video_id=video.id) }}">
+          {% if assistido %}
+          <button type="submit" class="btn btn-success">
+            <i class="bi bi-check-circle-fill"></i> Concluída
+          </button>
+          {% else %}
+          <button type="submit" class="btn btn-primary">
+            <i class="bi bi-check"></i> Marcar como concluída
+          </button>
+          {% endif %}
+        </form>
       </div>
     </div>
 
     {# Navegação anterior / próximo #}
-    <div class="d-flex justify-content-between mt-3 gap-3">
+    <div class="d-flex justify-content-between gap-3" style="margin-top:16px">
       {% if anterior %}
-      <a href="{{ url_for('aluno.videoaula', video_id=anterior.id) }}"
-         class="btn btn-outline-secondary">
-        <i class="bi bi-arrow-left me-1"></i> {{ anterior.titulo }}
+      <a href="{{ url_for('aluno.videoaula', video_id=anterior.id) }}" class="btn btn-ghost">
+        <i class="bi bi-arrow-left"></i> {{ anterior.titulo }}
       </a>
       {% else %}
       <div></div>
       {% endif %}
 
       {% if proximo %}
-      <a href="{{ url_for('aluno.videoaula', video_id=proximo.id) }}"
-         class="btn btn-primary">
-        {{ proximo.titulo }} <i class="bi bi-arrow-right ms-1"></i>
+      <a href="{{ url_for('aluno.videoaula', video_id=proximo.id) }}" class="btn btn-primary">
+        {{ proximo.titulo }} <i class="bi bi-arrow-right"></i>
       </a>
       {% else %}
-      <a href="{{ url_for('aluno.curso_detalhe', curso_id=curso.id) }}"
-         class="btn btn-success">
-        <i class="bi bi-check-circle me-1"></i> Concluir módulo
+      <a href="{{ url_for('aluno.curso_detalhe', curso_id=curso.id) }}" class="btn btn-success">
+        <i class="bi bi-check-circle"></i> Concluir módulo
       </a>
       {% endif %}
     </div>
   </div>
 
-  {# ── Sidebar: lista de aulas ── #}
+  {# ── Sidebar do módulo ── #}
   <div class="col-lg-4">
-    <div class="card">
-      <div class="card-header fw-600">
-        <i class="bi bi-list-ul me-2"></i>Aulas do Módulo
+    <div class="card no-pad">
+      <div style="padding:16px; border-bottom:1px solid var(--border)">
+        <div class="card-title">{{ video.modulo.titulo }}</div>
+        <div class="card-sub">{{ videos_modulo | length }} aula{{ 's' if videos_modulo|length != 1 else '' }} no módulo</div>
       </div>
-      <div class="card-body p-0">
-        <ul class="list-group list-group-flush">
-          {% for v in videos_modulo %}
-          <li class="list-group-item {% if v.id == video.id %}active{% endif %}"
-              style="{% if v.id == video.id %}background:var(--primary);color:#fff;{% endif %}">
-            <a href="{{ url_for('aluno.videoaula', video_id=v.id) }}"
-               class="d-flex align-items-center gap-2 text-decoration-none
-                      {% if v.id == video.id %}text-white{% else %}text-dark{% endif %}">
-              <span style="font-size:0.75rem; min-width:18px; text-align:center">
-                {{ loop.index }}
-              </span>
-              <span style="font-size:0.85rem; flex:1">{{ v.titulo }}</span>
-              {% if v.duracao_min %}
-              <span class="{% if v.id == video.id %}text-white-50{% else %}text-muted{% endif %}"
-                    style="font-size:0.75rem; white-space:nowrap">
-                {{ v.duracao_min }}min
-              </span>
-              {% endif %}
-            </a>
-          </li>
-          {% endfor %}
-        </ul>
+      <div style="padding:8px">
+        {% for v in videos_modulo %}
+        {% set is_atual = v.id == video.id %}
+        <a href="{{ url_for('aluno.videoaula', video_id=v.id) }}"
+           class="d-flex align-items-center gap-2"
+           style="padding:10px; border-radius:10px; text-decoration:none; cursor:pointer;
+                  margin-bottom:4px;
+                  {% if is_atual %}background: var(--primary-soft); border:1px solid rgba(37,99,235,.30);{% else %}background:transparent; border:1px solid transparent;{% endif %}
+                  color:var(--text)">
+          <div style="width:28px; height:28px; border-radius:50%; flex-shrink:0;
+                      display:grid; place-items:center; font-size:11px; font-weight:600;
+                      {% if is_atual %}background: var(--primary); color:#fff;
+                      {% else %}background: var(--surface-2); color: var(--text-3);{% endif %}">
+            {% if is_atual %}<i class="bi bi-play-fill"></i>{% else %}{{ loop.index }}{% endif %}
+          </div>
+          <div style="flex:1; min-width:0">
+            <div style="font-size:13px; font-weight:{% if is_atual %}600{% else %}500{% endif %}; color:var(--text)">{{ v.titulo }}</div>
+            {% if v.duracao_min %}
+            <div class="dim" style="font-size:11px"><i class="bi bi-clock"></i> {{ v.duracao_min }} min</div>
+            {% endif %}
+          </div>
+        </a>
+        {% endfor %}
       </div>
     </div>
   </div>
-
 </div>
 
 {% endblock %}

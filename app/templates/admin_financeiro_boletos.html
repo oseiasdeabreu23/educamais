@@ -1,0 +1,112 @@
+{% extends 'base.html' %}
+{% block page_title %}Boletos{% endblock %}
+{% block page_subtitle %}<div class="topbar-sub">Histórico e gestão de boletos</div>{% endblock %}
+{% block content %}
+
+<div class="card no-pad">
+  <div class="card-h" style="padding:20px 20px 16px; margin:0; gap:12px; flex-wrap:wrap">
+    <div>
+      <div class="card-title">Boletos</div>
+      <div class="card-sub">{{ boletos | length }} registro(s) — últimos 200</div>
+    </div>
+    <form method="GET" class="d-flex align-items-center gap-2">
+      <select name="status" class="input" style="min-width:160px"
+              onchange="this.form.submit()">
+        <option value="">Todos</option>
+        <option value="aberto"     {% if status_filtro=='aberto' %}selected{% endif %}>Em aberto</option>
+        <option value="pago"       {% if status_filtro=='pago' %}selected{% endif %}>Pagos</option>
+        <option value="vencido"    {% if status_filtro=='vencido' %}selected{% endif %}>Vencidos</option>
+        <option value="cancelado"  {% if status_filtro=='cancelado' %}selected{% endif %}>Cancelados</option>
+      </select>
+      <form method="POST" action="{{ url_for('admin.financeiro_boletos_sincronizar') }}"
+            style="display:inline">
+        <button type="submit" class="btn btn-ghost btn-sm" title="Consultar status no Cora">
+          <i class="bi bi-arrow-clockwise"></i> Sincronizar
+        </button>
+      </form>
+    </form>
+  </div>
+
+  {% if boletos %}
+  <table class="table">
+    <thead>
+      <tr>
+        <th>ID Cora</th>
+        <th>Aluno</th>
+        <th>Vencimento</th>
+        <th class="text-end">Valor</th>
+        <th>Status</th>
+        <th>Pago em</th>
+        <th style="width:140px"></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for b in boletos %}
+      <tr>
+        <td><code style="font-size:11px">{{ b.cora_boleto_id or '—' }}</code></td>
+        <td>
+          {% if b.mensalidade %}
+          <div class="fw-600">{{ b.mensalidade.aluno.nome }}</div>
+          <div class="dim" style="font-size:11px">{{ b.mensalidade.mes }}/{{ b.mensalidade.ano }}</div>
+          {% else %}
+          <span class="dim">avulso</span>
+          {% endif %}
+        </td>
+        <td class="dim">{{ b.vencimento.strftime('%d/%m/%Y') }}</td>
+        <td class="text-end fw-600">
+          R$ {{ '{:,.2f}'.format(b.valor).replace(',', 'X').replace('.', ',').replace('X', '.') }}
+        </td>
+        <td>
+          {% if b.status == 'pago' %}
+          <span class="badge badge-ok">Pago</span>
+          {% elif b.status == 'vencido' %}
+          <span class="badge badge-bad">Vencido</span>
+          {% elif b.status == 'cancelado' %}
+          <span class="badge">Cancelado</span>
+          {% else %}
+          <span class="badge badge-info">Em aberto</span>
+          {% endif %}
+        </td>
+        <td class="dim">{{ b.pago_em.strftime('%d/%m/%Y %H:%M') if b.pago_em else '—' }}</td>
+        <td>
+          <div class="table-actions">
+            {% if b.link_pdf %}
+            <a href="{{ b.link_pdf }}" target="_blank"
+               class="btn btn-ghost btn-sm" title="Baixar PDF">
+              <i class="bi bi-file-earmark-pdf"></i>
+            </a>
+            {% endif %}
+            {% if b.status in ['aberto', 'vencido'] %}
+            <form method="POST"
+                  action="{{ url_for('admin.financeiro_cora_simular_pagamento', boleto_id=b.id) }}"
+                  style="display:inline">
+              <button type="submit" class="btn btn-ghost btn-sm"
+                      title="Simular pagamento (mock)">
+                <i class="bi bi-check2-square"></i>
+              </button>
+            </form>
+            <form method="POST"
+                  action="{{ url_for('admin.financeiro_boleto_cancelar', id=b.id) }}"
+                  onsubmit="return confirm('Cancelar boleto?')"
+                  style="display:inline">
+              <button type="submit" class="btn btn-ghost btn-sm"
+                      title="Cancelar" style="color:var(--bad)">
+                <i class="bi bi-x-circle"></i>
+              </button>
+            </form>
+            {% endif %}
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty-state">
+    <i class="bi bi-receipt"></i>
+    <p>Nenhum boleto encontrado{% if status_filtro %} com esse status{% endif %}.</p>
+  </div>
+  {% endif %}
+</div>
+
+{% endblock %}

@@ -21,6 +21,7 @@
           <input type="hidden" name="tipo" id="tipoHidden">
 
           <input type="hidden" name="aluno_id" id="inputAlunoId">
+          <input type="hidden" name="professor_id" id="inputProfessorId">
 
           <div class="mb-3">
             <label class="form-label">Selecionar cadastro</label>
@@ -28,13 +29,11 @@
                     required>
               <option value="">— Escolha professor, responsável ou aluno —</option>
 
-              {% if professores %}
-              <optgroup label="Professores">
-                {% for p in professores %}
-                <option value="professor|{{ p.nome }}|{{ p.email or '' }}|"
-                  {% if p.email and p.email in emails_com_acesso %}disabled{% endif %}>
+              {% if professores_sem_acesso %}
+              <optgroup label="Professores (sem acesso)">
+                {% for p in professores_sem_acesso %}
+                <option value="professor|{{ p.nome }}||{{ p.id }}">
                   {{ p.nome }}
-                  {% if p.email and p.email in emails_com_acesso %} ✓ já tem acesso{% endif %}
                 </option>
                 {% endfor %}
               </optgroup>
@@ -63,14 +62,27 @@
               </optgroup>
               {% endif %}
             </select>
-            <small class="text-muted">Cadastre os registros primeiro nas respectivas seções.</small>
+            <small class="text-muted">
+              Cadastre os registros primeiro nas respectivas seções.
+              Para criar um <em>novo</em> professor sem cadastro prévio, use a opção abaixo.
+            </small>
+          </div>
+
+          <div class="mb-3">
+            <button type="button" class="btn btn-outline-secondary btn-sm w-100"
+                    onclick="liberarManual()">
+              <i class="bi bi-plus-circle me-1"></i> Criar acesso manual de Professor
+            </button>
+            <small class="text-muted d-block mt-1">
+              Cria o User e o registro Professor de uma vez (use só se não cadastrou em /admin/professores).
+            </small>
           </div>
 
           <div class="mb-3">
             <label class="form-label">Nome</label>
             <input class="form-control" name="nome" id="inputNome"
                    placeholder="Preenchido automaticamente" required readonly
-                   style="background:#f8fafc">
+                   style="background:var(--surface-2)">
           </div>
           <div class="mb-3">
             <label class="form-label">E-mail <small class="text-muted">(para login)</small></label>
@@ -216,11 +228,13 @@ function preencherDados(select) {
   const email = document.getElementById('inputEmail');
   const tipo = document.getElementById('tipoHidden');
   const alunoId = document.getElementById('inputAlunoId');
+  const profId = document.getElementById('inputProfessorId');
   const btn = document.getElementById('btnCriar');
 
   if (!val) {
     nome.value = ''; email.value = ''; tipo.value = '';
-    alunoId.value = ''; btn.disabled = true;
+    alunoId.value = ''; profId.value = ''; btn.disabled = true;
+    nome.readOnly = true;
     return;
   }
 
@@ -228,9 +242,32 @@ function preencherDados(select) {
   tipo.value = partes[0];
   nome.value = partes[1];
   email.value = partes[2] || '';
-  alunoId.value = partes[3] || '';
+  alunoId.value = (partes[0] === 'aluno') ? (partes[3] || '') : '';
+  profId.value = (partes[0] === 'professor') ? (partes[3] || '') : '';
   btn.disabled = false;
+  nome.readOnly = true;
   if (!partes[2]) email.focus();
+}
+
+function liberarManual() {
+  const select = document.getElementById('selectCadastro');
+  const nome = document.getElementById('inputNome');
+  const email = document.getElementById('inputEmail');
+  const tipo = document.getElementById('tipoHidden');
+  const alunoId = document.getElementById('inputAlunoId');
+  const profId = document.getElementById('inputProfessorId');
+  const btn = document.getElementById('btnCriar');
+
+  select.value = '';
+  select.required = false;
+  tipo.value = 'professor';
+  alunoId.value = '';
+  profId.value = '';
+  nome.value = '';
+  nome.readOnly = false;
+  email.value = '';
+  btn.disabled = false;
+  nome.focus();
 }
 </script>
 

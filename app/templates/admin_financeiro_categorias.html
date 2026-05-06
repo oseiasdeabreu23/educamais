@@ -1,0 +1,87 @@
+{% extends 'base.html' %}
+{% block page_title %}Categorias de despesa{% endblock %}
+{% block page_subtitle %}<div class="topbar-sub">Personalize a lista de categorias</div>{% endblock %}
+{% block content %}
+
+<div class="row g-3">
+  <div class="col-lg-4">
+    <div class="card">
+      <div class="card-h">
+        <div>
+          <div class="card-title">Nova categoria</div>
+          <div class="card-sub">Aparece nos lançamentos manuais</div>
+        </div>
+      </div>
+      <form method="POST" class="stack-md">
+        <div>
+          <label class="label">Nome</label>
+          <input type="text" name="nome" class="input" required maxlength="80">
+        </div>
+        <div>
+          <label class="label">Cor (opcional)</label>
+          <input type="color" name="cor" class="input" value="#3b82f6"
+                 style="height:42px; padding:4px; cursor:pointer">
+        </div>
+        <button type="submit" class="btn btn-primary w-100">
+          <i class="bi bi-plus-circle"></i> Adicionar
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <div class="col-lg-8">
+    <div class="card no-pad">
+      <div class="card-h" style="padding:20px 20px 16px; margin:0">
+        <div>
+          <div class="card-title">Categorias atuais</div>
+          <div class="card-sub">{{ categorias | length }} no total</div>
+        </div>
+      </div>
+      {% if categorias %}
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Nome</th>
+            <th>Cor</th>
+            <th>Movimentações</th>
+            <th style="width:80px"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for c in categorias %}
+          <tr>
+            <td class="fw-600">{{ c.nome }}</td>
+            <td>
+              {% if c.cor %}
+              <span style="display:inline-block; width:20px; height:20px; border-radius:4px;
+                           background:{{ c.cor }}; vertical-align:middle"></span>
+              <code style="font-size:11px; margin-left:6px">{{ c.cor }}</code>
+              {% else %}<span class="dim">—</span>{% endif %}
+            </td>
+            <td class="dim">{{ c.movimentacoes | length }}</td>
+            <td>
+              <form method="POST"
+                    action="{{ url_for('admin.financeiro_categoria_excluir', id=c.id) }}"
+                    onsubmit="return confirm('Excluir categoria {{ c.nome }}?')"
+                    style="display:inline">
+                <button type="submit" class="btn btn-ghost btn-sm"
+                        title="Excluir" style="color:var(--bad)">
+                  <i class="bi bi-trash"></i>
+                </button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="empty-state">
+        <i class="bi bi-tags"></i>
+        <p>Nenhuma categoria cadastrada.</p>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+{% endblock %}

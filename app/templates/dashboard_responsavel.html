@@ -1,118 +1,113 @@
 {% extends 'base.html' %}
-{% block page_title %}Acompanhamento{% endblock %}
+{% block page_title %}Acompanhamento dos filhos{% endblock %}
+{% block page_subtitle %}<div class="topbar-sub">Veja o desempenho e a frequência dos seus filhos</div>{% endblock %}
 {% block content %}
-
-<div class="page-header">
-  <h2>Acompanhamento dos alunos</h2>
-  <p>Veja o desempenho e frequência dos seus filhos</p>
-</div>
 
 {% if boletins %}
   {% for item in boletins %}
-  <div class="card mb-4">
-    <div class="card-header d-flex justify-content-between align-items-center">
+  {% set total = item.aluno.frequencias | length %}
+  {% set faltas_qtd = item.aluno.frequencias | selectattr('status','equalto','falta') | list | length %}
+  {% set just_qtd = item.aluno.frequencias | selectattr('status','equalto','justificada') | list | length %}
+  {% set presencas = total - faltas_qtd %}
+  {% set pct = ((presencas / total) * 100) | round(1) if total > 0 else 0 %}
+
+  <div class="card">
+    {# Cabeçalho do filho #}
+    <div class="d-flex justify-content-between align-items-start gap-3 mb-4 flex-wrap">
       <div class="d-flex align-items-center gap-3">
-        <div class="user-avatar" style="width:38px;height:38px;font-size:0.9rem">
+        <div style="width:56px; height:56px; border-radius:16px;
+                    background: linear-gradient(135deg, #2563eb, #1d4ed8); color:#fff;
+                    display:grid; place-items:center; font-size:20px; font-weight:700; font-family: var(--font-display)">
           {{ item.aluno.nome[0].upper() }}
         </div>
         <div>
-          <div style="font-weight:600">{{ item.aluno.nome }}</div>
-          <small class="text-muted">
-            {{ item.aluno.turma.nome if item.aluno.turma else 'Sem turma' }}
-          </small>
+          <div style="font-size:18px; font-weight:700; font-family: var(--font-display)">{{ item.aluno.nome }}</div>
+          <div class="d-flex align-items-center gap-2 mt-1" style="font-size:12.5px; color:var(--text-2)">
+            <span class="badge badge-primary">{{ item.aluno.turma.nome if item.aluno.turma else 'Sem turma' }}</span>
+          </div>
         </div>
       </div>
-      <div class="d-flex align-items-center gap-3">
-        <div class="text-center">
-          {% if item.media >= 7 %}
-            <span class="badge bg-success fs-6 px-3 py-2">{{ "%.1f"|format(item.media) }}</span>
-          {% elif item.media >= 5 %}
-            <span class="badge bg-warning text-dark fs-6 px-3 py-2">{{ "%.1f"|format(item.media) }}</span>
-          {% else %}
-            <span class="badge bg-danger fs-6 px-3 py-2">{{ "%.1f"|format(item.media) }}</span>
-          {% endif %}
-          <div style="font-size:0.7rem; color:var(--text-muted); margin-top:2px">Média</div>
-        </div>
-        <a class="btn btn-sm btn-outline-primary"
-           href="{{ url_for('responsavel.alerta', aluno_id=item.aluno.id) }}">
-          <i class="bi bi-bell"></i> Alertas
-        </a>
-      </div>
+
+      <a class="btn btn-ghost btn-sm" href="{{ url_for('responsavel.alerta', aluno_id=item.aluno.id) }}">
+        <i class="bi bi-bell"></i> Ver alertas
+      </a>
     </div>
-    <div class="card-body">
-      <div class="row g-4">
 
-        <!-- Notas -->
-        <div class="col-md-7">
-          <h6 class="mb-3" style="font-weight:600; font-size:0.85rem; text-transform:uppercase; letter-spacing:0.4px; color:var(--text-muted)">
-            <i class="bi bi-pencil-fill me-1"></i> Notas por disciplina
-          </h6>
-          {% if item.notas %}
-          <table class="table table-sm mb-0">
-            <thead>
-              <tr><th>Disciplina</th><th>Nota</th></tr>
-            </thead>
-            <tbody>
-              {% for n in item.notas %}
-              <tr>
-                <td>{{ n.disciplina.nome }}</td>
-                <td>
-                  {% if n.valor >= 7 %}
-                    <span class="badge bg-success">{{ n.valor }}</span>
-                  {% elif n.valor >= 5 %}
-                    <span class="badge bg-warning text-dark">{{ n.valor }}</span>
-                  {% else %}
-                    <span class="badge bg-danger">{{ n.valor }}</span>
-                  {% endif %}
-                </td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-          {% else %}
-          <p class="text-muted mb-0">Sem notas lançadas.</p>
-          {% endif %}
+    <div class="row g-3">
+      {# Média geral com donut #}
+      <div class="col-md-4">
+        <div style="border-radius:14px; padding:18px; background:var(--surface-2); border:1px solid var(--border);
+                    display:flex; align-items:center; gap:16px; height:100%">
+          {% set p = (item.media * 10) | round | int %}
+          {% set cor = '#10b981' if item.media >= 7 else ('#f59e0b' if item.media >= 5 else '#ef4444') %}
+          <div class="donut" style="--p:{{ p }}; --c1:{{ cor }}; --size:80px">
+            <span>{{ '%.1f'|format(item.media) }}</span>
+          </div>
+          <div>
+            <div class="eyebrow dim">Média geral</div>
+            <div style="font-size:26px; font-weight:700; font-family: var(--font-display); margin-top:2px">
+              {{ '%.1f'|format(item.media) }}
+            </div>
+            {% if item.media >= 7 %}
+              <span class="badge badge-ok mt-1">Aprovado</span>
+            {% elif item.media >= 5 %}
+              <span class="badge badge-warn mt-1">Recuperação</span>
+            {% else %}
+              <span class="badge badge-bad mt-1">Atenção</span>
+            {% endif %}
+          </div>
         </div>
+      </div>
 
-        <!-- Frequência -->
-        <div class="col-md-5">
-          <h6 class="mb-3" style="font-weight:600; font-size:0.85rem; text-transform:uppercase; letter-spacing:0.4px; color:var(--text-muted)">
-            <i class="bi bi-calendar-check-fill me-1"></i> Frequência
-          </h6>
-          {% set total = item.aluno.frequencias | length %}
-          {% set faltas = item.aluno.frequencias | selectattr('status','equalto','falta') | list | length %}
-          {% set presencas = total - faltas %}
+      {# Notas por disciplina #}
+      <div class="col-md-5">
+        <div class="eyebrow dim mb-2">Notas por disciplina</div>
+        {% if item.notas %}
+        <table class="table table-sm">
+          <thead>
+            <tr><th>Disciplina</th><th>Nota</th><th>Status</th></tr>
+          </thead>
+          <tbody>
+            {% for n in item.notas %}
+            <tr>
+              <td class="fw-600">{{ n.disciplina.nome }}</td>
+              <td>
+                {% if n.valor >= 7 %}<span class="score score-ok">{{ '%.1f'|format(n.valor) }}</span>
+                {% elif n.valor >= 5 %}<span class="score score-warn">{{ '%.1f'|format(n.valor) }}</span>
+                {% else %}<span class="score score-bad">{{ '%.1f'|format(n.valor) }}</span>{% endif %}
+              </td>
+              <td>
+                {% if n.valor >= 7 %}<span class="badge badge-ok">OK</span>
+                {% elif n.valor >= 5 %}<span class="badge badge-warn">Atenção</span>
+                {% else %}<span class="badge badge-bad">Crítico</span>{% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <p class="dim mb-0">Sem notas lançadas.</p>
+        {% endif %}
+      </div>
+
+      {# Frequência #}
+      <div class="col-md-3">
+        <div style="border-radius:14px; padding:18px; background:var(--surface-2); border:1px solid var(--border); height:100%">
+          <div class="eyebrow dim">Frequência</div>
           {% if total > 0 %}
-            {% set pct = ((presencas / total) * 100) | round(1) %}
-            <div class="mb-2">
-              <div class="d-flex justify-content-between mb-1">
-                <small>Presença</small>
-                <small><strong>{{ pct }}%</strong></small>
-              </div>
-              <div class="progress" style="height:8px; border-radius:4px">
-                <div class="progress-bar {% if pct >= 75 %}bg-success{% else %}bg-danger{% endif %}"
-                     style="width: {{ pct }}%"></div>
-              </div>
-            </div>
-            <div class="d-flex gap-3 mt-3">
-              <div class="text-center">
-                <div style="font-size:1.3rem; font-weight:700; color: var(--success)">{{ presencas }}</div>
-                <small class="text-muted">Presenças</small>
-              </div>
-              <div class="text-center">
-                <div style="font-size:1.3rem; font-weight:700; color: var(--danger)">{{ faltas }}</div>
-                <small class="text-muted">Faltas</small>
-              </div>
-              <div class="text-center">
-                <div style="font-size:1.3rem; font-weight:700; color: var(--text-muted)">{{ total }}</div>
-                <small class="text-muted">Total</small>
-              </div>
-            </div>
+          <div style="font-size:30px; font-weight:700; font-family: var(--font-display); margin-top:4px">{{ pct }}%</div>
+          <div class="progress my-3" style="height:8px">
+            <div class="progress-bar {% if pct < 75 %}bg-danger{% endif %}" style="width: {{ pct }}%"></div>
+          </div>
+          <div class="stack-sm" style="font-size:12.5px">
+            <div class="d-flex justify-content-between"><span class="dim">Presenças</span><strong>{{ presencas }}</strong></div>
+            <div class="d-flex justify-content-between"><span class="dim">Faltas</span><strong style="color:var(--bad)">{{ faltas_qtd }}</strong></div>
+            <div class="d-flex justify-content-between"><span class="dim">Justificadas</span><strong style="color:var(--warn)">{{ just_qtd }}</strong></div>
+          </div>
           {% else %}
-            <p class="text-muted mb-0">Sem registros de frequência.</p>
+          <p class="dim mt-2 mb-0">Sem registros.</p>
           {% endif %}
         </div>
-
       </div>
     </div>
   </div>
@@ -120,10 +115,10 @@
 
 {% else %}
 <div class="card">
-  <div class="card-body text-center py-5 text-muted">
-    <i class="bi bi-person-x" style="font-size:2.5rem; opacity:0.3"></i>
-    <p class="mt-3 mb-0">Nenhum aluno vinculado à sua conta.</p>
-    <small>Entre em contato com a administração da escola.</small>
+  <div class="empty-state">
+    <i class="bi bi-person-x"></i>
+    <p>Nenhum aluno vinculado à sua conta.</p>
+    <small class="dim">Entre em contato com a administração da escola.</small>
   </div>
 </div>
 {% endif %}

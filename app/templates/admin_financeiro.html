@@ -1,0 +1,150 @@
+{% extends 'base.html' %}
+{% block page_title %}Financeiro{% endblock %}
+{% block page_subtitle %}<div class="topbar-sub">Resumo de {{ mes_nome }}/{{ ano }}</div>{% endblock %}
+{% block content %}
+
+{# ── KPIs ── #}
+<div class="row g-3">
+  <div class="col-sm-6 col-lg-3">
+    <div class="kpi kpi-emerald">
+      <div class="kpi-head">
+        <div class="kpi-icon"><i class="bi bi-cash-coin"></i></div>
+      </div>
+      <div class="kpi-label">Recebido no mês</div>
+      <div class="kpi-value">R$ {{ '{:,.2f}'.format(kpis.recebido).replace(',', 'X').replace('.', ',').replace('X', '.') }}</div>
+      <div class="kpi-sub">{{ kpis.recebido_count }} boleto(s) pago(s)</div>
+    </div>
+  </div>
+  <div class="col-sm-6 col-lg-3">
+    <div class="kpi kpi-rose">
+      <div class="kpi-head">
+        <div class="kpi-icon"><i class="bi bi-exclamation-triangle-fill"></i></div>
+      </div>
+      <div class="kpi-label">Atrasados</div>
+      <div class="kpi-value">R$ {{ '{:,.2f}'.format(kpis.atrasado).replace(',', 'X').replace('.', ',').replace('X', '.') }}</div>
+      <div class="kpi-sub">{{ kpis.atrasado_count }} boleto(s) vencido(s)</div>
+    </div>
+  </div>
+  <div class="col-sm-6 col-lg-3">
+    <div class="kpi kpi-amber">
+      <div class="kpi-head">
+        <div class="kpi-icon"><i class="bi bi-calendar-event-fill"></i></div>
+      </div>
+      <div class="kpi-label">A receber hoje</div>
+      <div class="kpi-value">R$ {{ '{:,.2f}'.format(kpis.a_receber_hoje).replace(',', 'X').replace('.', ',').replace('X', '.') }}</div>
+      <div class="kpi-sub">{{ kpis.a_receber_hoje_count }} boleto(s) com venc. hoje</div>
+    </div>
+  </div>
+  <div class="col-sm-6 col-lg-3">
+    <div class="kpi kpi-blue">
+      <div class="kpi-head">
+        <div class="kpi-icon"><i class="bi bi-bar-chart-fill"></i></div>
+      </div>
+      <div class="kpi-label">Previsto no mês</div>
+      <div class="kpi-value">R$ {{ '{:,.2f}'.format(kpis.previsto_mes).replace(',', 'X').replace('.', ',').replace('X', '.') }}</div>
+      <div class="kpi-sub">Soma das mensalidades</div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3">
+  {# ── Ações rápidas ── #}
+  <div class="col-lg-5">
+    <div class="card">
+      <div class="card-h">
+        <div>
+          <div class="card-title">Atalhos</div>
+          <div class="card-sub">Operações financeiras</div>
+        </div>
+      </div>
+      <div class="stack-sm">
+        <a href="{{ url_for('admin.financeiro_mensalidades') }}" class="quick-action">
+          <span class="qa-icon" style="background:rgba(59,130,246,.15); color:var(--primary)">
+            <i class="bi bi-calendar3"></i></span>
+          <div>
+            <div class="qa-title">Mensalidades</div>
+            <div class="qa-sub">Gerar lote, ver status</div>
+          </div>
+        </a>
+        <a href="{{ url_for('admin.financeiro_boletos') }}" class="quick-action">
+          <span class="qa-icon" style="background:rgba(139,92,246,.15); color:#a78bfa">
+            <i class="bi bi-receipt"></i></span>
+          <div>
+            <div class="qa-title">Boletos</div>
+            <div class="qa-sub">Listar, emitir e cancelar</div>
+          </div>
+        </a>
+        <a href="{{ url_for('admin.financeiro_inadimplentes') }}" class="quick-action">
+          <span class="qa-icon" style="background:rgba(239,68,68,.15); color:var(--bad)">
+            <i class="bi bi-person-exclamation"></i></span>
+          <div>
+            <div class="qa-title">Inadimplentes</div>
+            <div class="qa-sub">Aluno e responsável</div>
+          </div>
+        </a>
+        <a href="{{ url_for('admin.financeiro_fluxo_caixa') }}" class="quick-action">
+          <span class="qa-icon" style="background:rgba(16,185,129,.15); color:var(--ok)">
+            <i class="bi bi-arrow-down-up"></i></span>
+          <div>
+            <div class="qa-title">Fluxo de caixa</div>
+            <div class="qa-sub">Entradas e saídas</div>
+          </div>
+        </a>
+        <a href="{{ url_for('admin.financeiro_categorias') }}" class="quick-action">
+          <span class="qa-icon" style="background:rgba(107,114,128,.15); color:var(--text-2)">
+            <i class="bi bi-tags-fill"></i></span>
+          <div>
+            <div class="qa-title">Categorias de despesa</div>
+            <div class="qa-sub">Personalizar a lista</div>
+          </div>
+        </a>
+      </div>
+    </div>
+  </div>
+
+  {# ── Últimas movimentações ── #}
+  <div class="col-lg-7">
+    <div class="card no-pad">
+      <div class="card-h" style="padding:20px 20px 16px; margin:0">
+        <div>
+          <div class="card-title">Últimas movimentações</div>
+          <div class="card-sub">8 mais recentes</div>
+        </div>
+        <a href="{{ url_for('admin.financeiro_fluxo_caixa') }}" class="btn btn-ghost btn-sm">
+          Ver todas <i class="bi bi-arrow-right"></i>
+        </a>
+      </div>
+      {% if ultimas_movs %}
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Data</th>
+            <th>Descrição</th>
+            <th>Categoria</th>
+            <th class="text-end">Valor</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for m in ultimas_movs %}
+          <tr>
+            <td class="dim">{{ m.data.strftime('%d/%m') }}</td>
+            <td>{{ m.descricao }}</td>
+            <td class="dim">{{ m.categoria.nome if m.categoria else '—' }}</td>
+            <td class="text-end fw-600" style="color: {{ 'var(--ok)' if m.tipo == 'entrada' else 'var(--bad)' }}">
+              {{ '+' if m.tipo == 'entrada' else '−' }} R$ {{ '{:,.2f}'.format(m.valor).replace(',', 'X').replace('.', ',').replace('X', '.') }}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="empty-state">
+        <i class="bi bi-inbox"></i>
+        <p>Nenhuma movimentação ainda. Comece gerando um lote de mensalidades.</p>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+{% endblock %}

@@ -35,7 +35,10 @@ app/static/uploads/
 # Variáveis de ambiente
 .env
 .env.*
+!.env.example
 
 # Sistema operacional
 .DS_Store
 Thumbs.db
+
+.vercel

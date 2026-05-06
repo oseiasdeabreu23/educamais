@@ -1,0 +1,137 @@
+{% extends 'base.html' %}
+{% block page_title %}Backup e restauração{% endblock %}
+{% block page_subtitle %}<div class="topbar-sub">Salve e restaure os dados do sistema</div>{% endblock %}
+{% block content %}
+
+<div class="row g-3">
+
+  {# ── Coluna: Criar backup + restaurar ── #}
+  <div class="col-lg-5">
+
+    <div class="card">
+      <div class="card-h">
+        <div>
+          <div class="card-title">Criar backup agora</div>
+          <div class="card-sub">Gera um arquivo .zip com banco + uploads</div>
+        </div>
+        <span class="qa-icon" style="background:rgba(16,185,129,.15); color:var(--ok)">
+          <i class="bi bi-cloud-arrow-down-fill"></i>
+        </span>
+      </div>
+      <p class="dim mb-3" style="font-size:13px">
+        O backup contém o banco de dados completo e os uploads (logos).
+        Recomendamos fazer um backup antes de qualquer alteração crítica.
+      </p>
+      <form method="POST" action="{{ url_for('admin.backup_criar') }}">
+        <button type="submit" class="btn btn-primary w-100">
+          <i class="bi bi-plus-circle"></i> Criar backup
+        </button>
+      </form>
+    </div>
+
+    <div class="card mt-3" style="border-color: rgba(239,68,68,.4)">
+      <div class="card-h">
+        <div>
+          <div class="card-title" style="color:var(--bad)">Restaurar de um arquivo</div>
+          <div class="card-sub">Substitui todos os dados atuais</div>
+        </div>
+        <span class="qa-icon" style="background:rgba(239,68,68,.15); color:var(--bad)">
+          <i class="bi bi-cloud-arrow-up-fill"></i>
+        </span>
+      </div>
+
+      <div class="alert alert-warning mb-3">
+        <strong>Atenção:</strong> a restauração sobrescreve todo o banco e os uploads.
+        Antes de restaurar, o sistema cria automaticamente um backup
+        <code>pre-restore_*</code> do estado atual.
+      </div>
+
+      <form method="POST" action="{{ url_for('admin.backup_restaurar') }}"
+            enctype="multipart/form-data" class="stack-md">
+        <div>
+          <label class="label">Arquivo de backup (.zip)</label>
+          <input type="file" name="backup_file" class="input" accept=".zip" required>
+        </div>
+        <div>
+          <label class="label">Confirmação</label>
+          <input type="text" name="confirmacao" class="input"
+                 placeholder='Digite "RESTAURAR" para confirmar' required
+                 autocomplete="off">
+        </div>
+        <button type="submit" class="btn btn-danger w-100"
+                onclick="return confirm('Tem certeza? Isso vai sobrescrever todos os dados atuais.')">
+          <i class="bi bi-arrow-counterclockwise"></i> Restaurar backup
+        </button>
+      </form>
+    </div>
+  </div>
+
+  {# ── Coluna: Lista de backups existentes ── #}
+  <div class="col-lg-7">
+    <div class="card no-pad">
+      <div class="card-h" style="padding:20px 20px 16px; margin:0">
+        <div>
+          <div class="card-title">Backups disponíveis</div>
+          <div class="card-sub">Em <code>instance/backups/</code></div>
+        </div>
+        <span class="badge">{{ backups | length }}</span>
+      </div>
+      {% if backups %}
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Arquivo</th>
+            <th>Data</th>
+            <th>Tamanho</th>
+            <th style="width:140px"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for b in backups %}
+          <tr>
+            <td>
+              <div class="d-flex align-items-center gap-2">
+                <i class="bi bi-file-earmark-zip-fill" style="color:var(--primary); font-size:16px"></i>
+                <div>
+                  <div class="fw-600">{{ b.nome }}</div>
+                  {% if b.nome.startswith('pre-restore') %}
+                  <div class="dim" style="font-size:11px">snapshot pré-restauração</div>
+                  {% endif %}
+                </div>
+              </div>
+            </td>
+            <td class="dim">{{ b.data.strftime('%d/%m/%Y %H:%M') }}</td>
+            <td class="dim">{{ b.tamanho_kb }} KB</td>
+            <td>
+              <div class="table-actions">
+                <a href="{{ url_for('admin.backup_baixar', nome=b.nome) }}"
+                   class="btn btn-ghost btn-sm" title="Baixar">
+                  <i class="bi bi-download"></i>
+                </a>
+                <form method="POST"
+                      action="{{ url_for('admin.backup_excluir', nome=b.nome) }}"
+                      onsubmit="return confirm('Excluir o backup {{ b.nome }}?')"
+                      style="display:inline">
+                  <button type="submit" class="btn btn-ghost btn-sm"
+                          title="Excluir" style="color:var(--bad)">
+                    <i class="bi bi-trash"></i>
+                  </button>
+                </form>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="empty-state">
+        <i class="bi bi-archive"></i>
+        <p>Nenhum backup criado ainda.</p>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+</div>
+
+{% endblock %}

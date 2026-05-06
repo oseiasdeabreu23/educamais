@@ -26,8 +26,28 @@ with app.app_context():
     if not disciplina.id: db.session.add(disciplina)
     db.session.commit()
 
-    aluno = Aluno.query.filter_by(nome='João Silva').first() or Aluno(nome='João Silva', data_nascimento=date(2013,5,12), turma_id=turma.id)
-    if not aluno.id: db.session.add(aluno)
+    aluno = Aluno.query.filter_by(nome='João Silva').first()
+    if not aluno:
+        aluno = Aluno(
+            nome='João Silva',
+            data_nascimento=date(2013, 5, 12),
+            turma_id=turma.id,
+            cpf='39053344705',  # CPF fictício válido
+            sexo='Masculino',
+            cor_raca='Parda',
+            telefone='(11) 98888-7777',
+            cep='01310100',
+            logradouro='Av. Paulista',
+            numero='1000',
+            bairro='Bela Vista',
+            cidade='São Paulo',
+            uf='SP',
+            pcd=False,
+            status='ativo',
+            autoriza_imagem=True,
+            data_consentimento_imagem=date.today(),
+        )
+        db.session.add(aluno)
     responsavel = Responsavel.query.filter_by(nome='Maria Silva').first() or Responsavel(nome='Maria Silva', telefone='11999990000')
     if not responsavel.id: db.session.add(responsavel)
     db.session.commit()
@@ -36,11 +56,15 @@ with app.app_context():
     if not AlunoResponsavel.query.filter_by(aluno_id=aluno.id, responsavel_id=responsavel.id).first():
         db.session.add(AlunoResponsavel(aluno_id=aluno.id, responsavel_id=responsavel.id))
 
+    user_prof = User.query.filter_by(email='prof@escola.com').first()
     prof = Professor.query.filter_by(nome='Prof. Pessoa').first()
     if not prof:
-        prof = Professor(nome='Prof. Pessoa', turma_id=turma.id)
+        prof = Professor(nome='Prof. Pessoa', turma_id=turma.id,
+                         user_id=user_prof.id if user_prof else None)
         prof.disciplinas.append(disciplina)
         db.session.add(prof)
+    elif user_prof and prof.user_id is None:
+        prof.user_id = user_prof.id
     db.session.commit()
 
     if not Nota.query.filter_by(aluno_id=aluno.id, disciplina_id=disciplina.id).first():
@@ -70,7 +94,8 @@ with app.app_context():
     if not curso:
         curso = Curso(titulo='Matemática Básica',
                       descricao='Fundamentos de álgebra, geometria e aritmética.',
-                      ativo=True)
+                      ativo=True,
+                      duracao_meses=6)
         db.session.add(curso)
         db.session.flush()
 

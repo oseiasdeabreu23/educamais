@@ -1,0 +1,166 @@
+{% extends 'base.html' %}
+{% block page_title %}Mensalidades{% endblock %}
+{% block page_subtitle %}<div class="topbar-sub">{{ mes_nome }}/{{ ano }}</div>{% endblock %}
+{% block content %}
+
+<div class="row g-3">
+  {# ── Filtro + gerar lote ── #}
+  <div class="col-lg-4">
+    <div class="card">
+      <div class="card-h">
+        <div>
+          <div class="card-title">Período</div>
+          <div class="card-sub">Selecione mês/ano</div>
+        </div>
+      </div>
+      <form method="GET" action="{{ url_for('admin.financeiro_mensalidades') }}" class="stack-md">
+        <div>
+          <label class="label">Mês</label>
+          <select name="mes" class="input">
+            {% for nome in meses %}
+            <option value="{{ loop.index }}" {% if loop.index == mes %}selected{% endif %}>{{ nome }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="label">Ano</label>
+          <input type="number" name="ano" class="input" value="{{ ano }}" min="2020" max="2099">
+        </div>
+        <button type="submit" class="btn btn-ghost w-100">
+          <i class="bi bi-funnel"></i> Filtrar
+        </button>
+      </form>
+    </div>
+
+    <div class="card mt-3">
+      <div class="card-h">
+        <div>
+          <div class="card-title">Gerar lote do mês</div>
+          <div class="card-sub">Cria 1 mensalidade por aluno</div>
+        </div>
+        <span class="qa-icon" style="background:rgba(59,130,246,.15); color:var(--primary)">
+          <i class="bi bi-collection"></i>
+        </span>
+      </div>
+      <p class="dim mb-3" style="font-size:13px">
+        Aplica o valor cadastrado em cada aluno. Se algum aluno não tiver
+        valor padrão, usa o "valor default" abaixo (opcional).
+      </p>
+      <form method="POST" action="{{ url_for('admin.financeiro_mensalidades_lote') }}" class="stack-md">
+        <input type="hidden" name="mes" value="{{ mes }}">
+        <input type="hidden" name="ano" value="{{ ano }}">
+        <div>
+          <label class="label">Valor default (opcional)</label>
+          <input type="text" name="valor_default" class="input" placeholder="Ex.: 250,00">
+        </div>
+        <button type="submit" class="btn btn-primary w-100">
+          <i class="bi bi-plus-circle"></i> Gerar lote
+        </button>
+      </form>
+    </div>
+  </div>
+
+  {# ── Tabela ── #}
+  <div class="col-lg-8">
+    <div class="card no-pad">
+      <div class="card-h" style="padding:20px 20px 16px; margin:0">
+        <div>
+          <div class="card-title">Mensalidades de {{ mes_nome }}/{{ ano }}</div>
+          <div class="card-sub">{{ mensalidades | length }} no total</div>
+        </div>
+      </div>
+      {% if mensalidades %}
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Aluno</th>
+            <th>Responsável</th>
+            <th>Vencimento</th>
+            <th class="text-end">Valor</th>
+            <th>Boleto</th>
+            <th style="width:160px"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for m in mensalidades %}
+          {% set ult = m.boletos | sort(attribute='id') | last %}
+          <tr>
+            <td><div class="fw-600">{{ m.aluno.nome }}</div></td>
+            <td class="dim">{{ m.responsavel.nome }}</td>
+            <td class="dim">{{ m.vencimento.strftime('%d/%m/%Y') }}</td>
+            <td class="text-end fw-600">
+              R$ {{ '{:,.2f}'.format(m.valor).replace(',', 'X').replace('.', ',').replace('X', '.') }}
+            </td>
+            <td>
+              {% if ult %}
+                {% if ult.status == 'pago' %}
+                <span class="badge badge-ok">Pago</span>
+                {% elif ult.status == 'vencido' %}
+                <span class="badge badge-bad">Vencido</span>
+                {% elif ult.status == 'cancelado' %}
+                <span class="badge">Cancelado</span>
+                {% else %}
+                <span class="badge badge-info">Em aberto</span>
+                {% endif %}
+              {% else %}
+                <span class="badge">Não emitido</span>
+              {% endif %}
+            </td>
+            <td>
+              <div class="table-actions">
+                {% if not ult or ult.status == 'cancelado' %}
+                <form method="POST"
+                      action="{{ url_for('admin.financeiro_boleto_emitir', mensalidade_id=m.id) }}"
+                      style="display:inline">
+                  <button type="submit" class="btn btn-ghost btn-sm" title="Emitir boleto">
+                    <i class="bi bi-send-fill"></i>
+                  </button>
+                </form>
+                {% endif %}
+                {% if ult and ult.status in ['aberto', 'vencido'] %}
+                <form method="POST"
+                      action="{{ url_for('admin.financeiro_boleto_cancelar', id=ult.id) }}"
+                      onsubmit="return confirm('Cancelar boleto?')"
+                      style="display:inline">
+                  <button type="submit" class="btn btn-ghost btn-sm" title="Cancelar boleto"
+                          style="color:var(--bad)">
+                    <i class="bi bi-x-circle"></i>
+                  </button>
+                </form>
+                {% endif %}
+                {% if ult and ult.status in ['aberto', 'vencido'] %}
+                <form method="POST"
+                      action="{{ url_for('admin.financeiro_cora_simular_pagamento', boleto_id=ult.id) }}"
+                      style="display:inline">
+                  <button type="submit" class="btn btn-ghost btn-sm"
+                          title="Simular pagamento (mock)">
+                    <i class="bi bi-check2-square"></i>
+                  </button>
+                </form>
+                {% endif %}
+                <form method="POST"
+                      action="{{ url_for('admin.financeiro_mensalidade_excluir', id=m.id) }}"
+                      onsubmit="return confirm('Excluir mensalidade {{ m.aluno.nome }} {{ m.mes }}/{{ m.ano }}?')"
+                      style="display:inline">
+                  <button type="submit" class="btn btn-ghost btn-sm"
+                          title="Excluir" style="color:var(--bad)">
+                    <i class="bi bi-trash"></i>
+                  </button>
+                </form>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="empty-state">
+        <i class="bi bi-calendar3"></i>
+        <p>Sem mensalidades neste mês ainda. Use "Gerar lote" pra criar.</p>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+{% endblock %}

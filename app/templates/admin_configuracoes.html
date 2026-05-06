@@ -42,11 +42,11 @@
 
           {# Preview atual #}
           {% if cfg.logo_path %}
-          <div class="mb-3 p-3 rounded" style="background:#f8fafc; border:1px dashed #dee2e6">
+          <div class="mb-3 p-3 rounded" style="background:var(--surface-2); border:1px dashed var(--border-strong)">
             <div class="d-flex align-items-center justify-content-between gap-3">
               <div>
                 <div class="text-muted small mb-2">Logo atual:</div>
-                <img src="{{ url_for('static', filename='uploads/' + cfg.logo_path) }}"
+                <img src="{{ upload_url(cfg.logo_path) }}"
                      alt="Logo atual"
                      style="max-height:64px; max-width:220px; object-fit:contain">
               </div>
@@ -68,18 +68,18 @@
 
           {# Preview antes de salvar #}
           <div id="previewBox" class="mt-2 d-none p-2 rounded"
-               style="background:#f8fafc; border:1px dashed #4361ee">
+               style="background:var(--surface-2); border:1px dashed var(--primary)">
             <div class="text-muted small mb-1">Pré-visualização:</div>
             <img id="previewImg" src="" alt="preview"
                  style="max-height:64px; max-width:220px; object-fit:contain">
           </div>
 
           {# Especificações #}
-          <div class="mt-3 p-3 rounded" style="background:#eef2ff; border:1px solid #c7d2fe">
-            <div class="fw-500 mb-2" style="font-size:0.85rem; color:#4361ee">
+          <div class="mt-3 p-3 rounded" style="background:var(--primary-soft); border:1px solid var(--primary-soft)">
+            <div class="fw-500 mb-2" style="font-size:0.85rem; color:var(--primary)">
               <i class="bi bi-info-circle me-1"></i>Especificações para a logo
             </div>
-            <ul class="mb-0 ps-3" style="font-size:0.82rem; color:#374151; line-height:1.8">
+            <ul class="mb-0 ps-3" style="font-size:0.82rem; color:var(--text-2); line-height:1.8">
               <li><strong>Formatos aceitos:</strong> PNG, JPG, JPEG, WEBP, SVG</li>
               <li><strong>Tamanho máximo:</strong> 2 MB</li>
               <li><strong>Dimensões recomendadas:</strong> 200 × 80 px (proporção 2.5:1)</li>
@@ -109,7 +109,7 @@
 
           <div id="sidebarPreviewLogo" class="mb-2 {% if not cfg.logo_path %}d-none{% endif %}">
             {% if cfg.logo_path %}
-            <img src="{{ url_for('static', filename='uploads/' + cfg.logo_path) }}"
+            <img src="{{ upload_url(cfg.logo_path) }}"
                  alt="{{ cfg.nome }}"
                  style="max-height:48px; max-width:170px; object-fit:contain">
             {% else %}
@@ -139,10 +139,10 @@
       <div class="card-header">
         <i class="bi bi-window me-2"></i>Título da aba do navegador
       </div>
-      <div class="card-body" style="background:#f8fafc">
+      <div class="card-body" style="background:var(--surface-2)">
         <div class="d-flex align-items-center gap-2"
-             style="background:#fff; border:1px solid #dee2e6; border-radius:6px; padding:8px 14px; font-size:0.875rem">
-          <i class="bi bi-circle-fill" style="font-size:0.4rem; color:#ccc"></i>
+             style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:8px 14px; font-size:0.875rem; color:var(--text)">
+          <i class="bi bi-circle-fill" style="font-size:0.4rem; color:var(--text-3)"></i>
           <span id="tabPreview">{{ cfg.nome }}</span>
         </div>
       </div>

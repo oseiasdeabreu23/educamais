@@ -1,111 +1,142 @@
 {% extends 'base.html' %}
-{% block page_title %}Dashboard{% endblock %}
+{% block page_title %}Visão geral{% endblock %}
+{% block page_subtitle %}<div class="topbar-sub">Bem-vindo de volta, {{ current_user.nome.split()[0] }}</div>{% endblock %}
 {% block content %}
 
-<div class="page-header">
-  <h2>Dashboard</h2>
-  <p>Visão geral do sistema</p>
+{# ── KPIs ── #}
+<div class="row g-3">
+  <div class="col-sm-6 col-lg-3">
+    <div class="kpi kpi-blue">
+      <div class="kpi-head">
+        <div class="kpi-icon"><i class="bi bi-bar-chart-fill"></i></div>
+      </div>
+      <div class="kpi-label">Média geral</div>
+      <div class="kpi-value">{{ relatorios.media_geral }}</div>
+      <div class="kpi-sub">Baseada em todas as notas lançadas</div>
+    </div>
+  </div>
+  <div class="col-sm-6 col-lg-3">
+    <div class="kpi kpi-cyan">
+      <div class="kpi-head">
+        <div class="kpi-icon"><i class="bi bi-check-circle-fill"></i></div>
+      </div>
+      <div class="kpi-label">Frequência</div>
+      <div class="kpi-value">{{ relatorios.frequencia }}%</div>
+      <div class="kpi-sub">Bimestre atual</div>
+    </div>
+  </div>
+  <div class="col-sm-6 col-lg-3">
+    <div class="kpi kpi-rose">
+      <div class="kpi-head">
+        <div class="kpi-icon"><i class="bi bi-exclamation-triangle-fill"></i></div>
+      </div>
+      <div class="kpi-label">Baixo desempenho</div>
+      <div class="kpi-value">{{ relatorios.baixo_desempenho | length }}</div>
+      <div class="kpi-sub">Alunos com média &lt; 5,5</div>
+    </div>
+  </div>
+  <div class="col-sm-6 col-lg-3">
+    <div class="kpi kpi-violet">
+      <div class="kpi-head">
+        <div class="kpi-icon"><i class="bi bi-people-fill"></i></div>
+      </div>
+      <div class="kpi-label">Turmas ativas</div>
+      <div class="kpi-value">{{ turmas | length }}</div>
+      <div class="kpi-sub">Em andamento neste ano</div>
+    </div>
+  </div>
 </div>
 
-<!-- Stat cards -->
-<div class="row g-3 mb-4">
-  <div class="col-sm-6 col-lg-3">
-    <div class="stat-card stat-success">
-      <i class="bi bi-star-fill stat-icon"></i>
-      <div class="stat-value">{{ relatorios.media_geral }}</div>
-      <div class="stat-label">Média geral</div>
-    </div>
-  </div>
-  <div class="col-sm-6 col-lg-3">
-    <div class="stat-card stat-info">
-      <i class="bi bi-calendar-check-fill stat-icon"></i>
-      <div class="stat-value">{{ relatorios.frequencia }}%</div>
-      <div class="stat-label">Frequência</div>
-    </div>
-  </div>
-  <div class="col-sm-6 col-lg-3">
-    <div class="stat-card stat-warning">
-      <i class="bi bi-exclamation-triangle-fill stat-icon"></i>
-      <div class="stat-value">{{ relatorios.baixo_desempenho | length }}</div>
-      <div class="stat-label">Baixo desempenho</div>
-    </div>
-  </div>
-  <div class="col-sm-6 col-lg-3">
-    <div class="stat-card stat-primary">
-      <i class="bi bi-collection-fill stat-icon"></i>
-      <div class="stat-value">{{ turmas | length }}</div>
-      <div class="stat-label">Turmas ativas</div>
-    </div>
-  </div>
-</div>
-
-<div class="row g-4">
-
-  <!-- Ações rápidas -->
+<div class="row g-3">
+  {# ── Ações rápidas ── #}
   <div class="col-lg-4">
-    <div class="card h-100">
-      <div class="card-header"><i class="bi bi-lightning-fill me-2"></i>Ações rápidas</div>
-      <div class="card-body">
+    <div class="card">
+      <div class="card-h">
+        <div>
+          <div class="card-title">Ações rápidas</div>
+          <div class="card-sub">Operações comuns do dia a dia</div>
+        </div>
+      </div>
+      <div class="stack-sm">
         <a class="quick-action" href="{{ url_for('admin.alunos') }}">
-          <i class="bi bi-people-fill"></i> Cadastrar alunos
+          <span class="qa-icon" style="background:rgba(37,99,235,.15); color:#2563eb"><i class="bi bi-person-plus-fill"></i></span>
+          <div class="qa-body">Novo aluno<small>Cadastrar e matricular</small></div>
+          <i class="bi bi-chevron-right dim"></i>
         </a>
         <a class="quick-action" href="{{ url_for('admin.turmas') }}">
-          <i class="bi bi-collection-fill"></i> Gerenciar turmas
-        </a>
-        <a class="quick-action" href="{{ url_for('admin.disciplinas') }}">
-          <i class="bi bi-book-fill"></i> Gerenciar disciplinas
+          <span class="qa-icon" style="background:rgba(6,182,212,.15); color:#06b6d4"><i class="bi bi-people-fill"></i></span>
+          <div class="qa-body">Nova turma<small>Atribuir prof. e disciplinas</small></div>
+          <i class="bi bi-chevron-right dim"></i>
         </a>
         <a class="quick-action" href="{{ url_for('admin.professores') }}">
-          <i class="bi bi-person-video3"></i> Cadastrar professores
+          <span class="qa-icon" style="background:rgba(139,92,246,.15); color:#8b5cf6"><i class="bi bi-mortarboard-fill"></i></span>
+          <div class="qa-body">Novo professor<small>Vincular disciplinas</small></div>
+          <i class="bi bi-chevron-right dim"></i>
         </a>
-        <a class="quick-action" href="{{ url_for('admin.responsaveis') }}">
-          <i class="bi bi-person-heart"></i> Cadastrar responsáveis
-        </a>
-        <a class="quick-action" href="{{ url_for('admin.usuarios') }}">
-          <i class="bi bi-shield-lock-fill"></i> Gerenciar usuários
+        <a class="quick-action" href="{{ url_for('admin.cursos') }}">
+          <span class="qa-icon" style="background:rgba(16,185,129,.15); color:#10b981"><i class="bi bi-play-btn-fill"></i></span>
+          <div class="qa-body">Publicar curso<small>Módulos e videoaulas</small></div>
+          <i class="bi bi-chevron-right dim"></i>
         </a>
       </div>
     </div>
   </div>
 
-  <!-- Alunos com baixo desempenho -->
+  {# ── Alunos com baixo desempenho ── #}
   <div class="col-lg-8">
-    <div class="card h-100">
-      <div class="card-header">
-        <i class="bi bi-exclamation-triangle-fill me-2 text-warning"></i>
-        Alunos com baixo desempenho
-      </div>
-      <div class="card-body p-0">
-        {% if relatorios.baixo_desempenho %}
-        <table class="table mb-0">
-          <thead>
-            <tr>
-              <th>Aluno</th>
-              <th>Turma</th>
-              <th>Média</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for item in relatorios.baixo_desempenho %}
-            <tr>
-              <td>{{ item.aluno.nome }}</td>
-              <td class="text-muted">{{ item.aluno.turma.nome if item.aluno.turma else '—' }}</td>
-              <td>
-                <span class="badge bg-danger">{{ item.media }}</span>
-              </td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-        {% else %}
-        <div class="text-center py-5 text-muted">
-          <i class="bi bi-check-circle" style="font-size:2rem; color: #10b981; opacity:0.7"></i>
-          <p class="mt-2 mb-0">Nenhum aluno com baixo desempenho.</p>
+    <div class="card no-pad">
+      <div class="card-h" style="padding:20px 20px 16px; margin:0">
+        <div>
+          <div class="card-title">Alunos com baixo desempenho</div>
+          <div class="card-sub">Média &lt; 5,5 — requer acompanhamento</div>
         </div>
-        {% endif %}
+        <a href="{{ url_for('admin.alunos') }}" class="btn btn-ghost btn-sm">
+          Ver todos <i class="bi bi-arrow-right"></i>
+        </a>
       </div>
+      {% if relatorios.baixo_desempenho %}
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Aluno</th>
+            <th>Turma</th>
+            <th>Média</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in relatorios.baixo_desempenho %}
+          <tr>
+            <td>
+              <div class="d-flex align-items-center gap-2">
+                <div class="avatar-sm">{{ item.aluno.nome[0].upper() }}</div>
+                <div>
+                  <div class="fw-600">{{ item.aluno.nome }}</div>
+                  <div class="dim" style="font-size:11.5px">matrícula #{{ '%04d' % item.aluno.id }}</div>
+                </div>
+              </div>
+            </td>
+            <td>
+              {% if item.aluno.turma %}
+                <span class="badge badge-primary">{{ item.aluno.turma.nome }}</span>
+              {% else %}
+                <span class="dim">—</span>
+              {% endif %}
+            </td>
+            <td><span class="score score-bad">{{ '%.1f'|format(item.media) }}</span></td>
+            <td><i class="bi bi-chevron-right dim"></i></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="empty-state">
+        <i class="bi bi-check-circle" style="color:#10b981; opacity:.7"></i>
+        <p>Nenhum aluno com baixo desempenho. Excelente!</p>
+      </div>
+      {% endif %}
     </div>
   </div>
-
 </div>
+
 {% endblock %}

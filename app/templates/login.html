@@ -1,69 +1,104 @@
 <!doctype html>
-<html lang="pt-BR">
+<html lang="pt-BR" data-theme="light">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{ config_sistema.nome }} — Login</title>
+  <title>{{ config_sistema.nome }} — Entrar</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
 </head>
 <body>
 
 <div class="login-page">
 
-  <!-- Lado esquerdo — branding -->
-  <div class="login-brand-side">
-    <div class="login-brand-icon">
-      <i class="bi bi-mortarboard-fill"></i>
-    </div>
-    {% if config_sistema.logo_path %}
-      <img src="{{ url_for('static', filename='uploads/' + config_sistema.logo_path) }}"
-           alt="{{ config_sistema.nome }}"
-           style="max-height:72px; max-width:240px; object-fit:contain; margin-bottom:16px; display:block">
-    {% else %}
-      <h1>{{ config_sistema.nome }}</h1>
-    {% endif %}
-    <p>Plataforma de gestão educacional para professores, alunos e responsáveis.</p>
-  </div>
+  <!-- Lado esquerdo: branding -->
+  <aside class="login-brand-side">
+    <span class="deco-3"></span>
 
-  <!-- Lado direito — formulário -->
-  <div class="login-form-side">
+    <div class="login-top">
+      <div class="brand-mark">
+        {% if config_sistema.logo_path %}
+          <img src="{{ upload_url(config_sistema.logo_path) }}"
+               alt="{{ config_sistema.nome }}">
+        {% else %}
+          <i class="bi bi-tree-fill"></i>
+        {% endif %}
+      </div>
+      <div>
+        <div class="brand-name">{{ config_sistema.nome }}</div>
+        <div class="brand-role">Sistema acadêmico</div>
+      </div>
+    </div>
+
+    <div class="login-hero">
+      <div class="eyebrow">Instituto Arvorecer · 2026</div>
+      <h1>A escola inteira,<br>num só lugar.</h1>
+      <p>
+        Notas, frequência, cursos online e comunicação família-escola — tudo organizado
+        para alunos, professores, responsáveis e administradores.
+      </p>
+
+      <div class="login-stats">
+        <div class="stat">
+          <div class="n">+280</div>
+          <div class="l">alunos</div>
+        </div>
+        <div class="stat">
+          <div class="n">24</div>
+          <div class="l">turmas</div>
+        </div>
+        <div class="stat">
+          <div class="n">96%</div>
+          <div class="l">frequência</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="login-foot">© {{ ano_atual or 2026 }} {{ config_sistema.nome }} · v2.0</div>
+  </aside>
+
+  <!-- Lado direito: formulário -->
+  <section class="login-form-side">
     <div class="login-form-container">
 
       {% with messages = get_flashed_messages(with_categories=true) %}
         {% if messages %}
           {% for category, message in messages %}
-            <div class="alert alert-{{ category }} alert-dismissible fade show mb-4" role="alert">
-              {{ message }}
-              <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            <div class="alert alert-{{ category }} d-flex align-items-center mb-3" role="alert">
+              <span style="flex:1">{{ message }}</span>
+              <button type="button" class="btn-close" data-bs-dismiss="alert">&times;</button>
             </div>
           {% endfor %}
         {% endif %}
       {% endwith %}
 
-      <h2>Bem-vindo!</h2>
-      <p class="subtitle">Acesse sua conta para continuar</p>
+      <div class="eyebrow dim">Bem-vindo de volta</div>
+      <h2>Entrar na plataforma</h2>
+      <div class="subtitle">Use seu e-mail para acessar o sistema.</div>
 
-      <form method="POST" action="{{ url_for('auth.login') }}">
-        <div class="mb-3">
-          <label class="form-label">Email</label>
-          <input type="email" name="email" class="form-control"
+      <form method="POST" action="{{ url_for('auth.login') }}" class="stack">
+        <div>
+          <label class="label">E-mail</label>
+          <input type="email" name="email" class="input"
                  placeholder="seu@email.com" required autofocus>
         </div>
-        <div class="mb-4">
-          <label class="form-label">Senha</label>
-          <input type="password" name="senha" class="form-control"
+        <div>
+          <label class="label">Senha</label>
+          <input type="password" name="senha" class="input"
                  placeholder="••••••••" required>
         </div>
+
         <button type="submit" class="btn btn-primary btn-login">
-          Entrar &nbsp;<i class="bi bi-arrow-right"></i>
+          Entrar <i class="bi bi-arrow-right"></i>
         </button>
       </form>
 
+      <div class="login-foot-note">
+        Não tem acesso? <a href="{{ url_for('auth.register') }}">Criar conta</a>
+      </div>
     </div>
-  </div>
+  </section>
 
 </div>
 

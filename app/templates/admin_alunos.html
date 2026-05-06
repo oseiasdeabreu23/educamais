@@ -1,144 +1,390 @@
 {% extends 'base.html' %}
 {% block page_title %}Alunos{% endblock %}
+{% block page_subtitle %}<div class="topbar-sub">{{ alunos | length }} aluno{{ 's' if alunos|length != 1 else '' }} cadastrado{{ 's' if alunos|length != 1 else '' }}</div>{% endblock %}
 {% block content %}
 
-<div class="page-header">
-  <h2>Alunos</h2>
-  <p>Cadastre e gerencie os alunos da escola</p>
-</div>
-
-<div class="row g-4">
-
-  <!-- Formulário de cadastro -->
-  <div class="col-lg-4">
-    <div class="card">
-      <div class="card-header"><i class="bi bi-person-plus-fill me-2"></i>Novo Aluno</div>
-      <div class="card-body">
-        <form method="POST" action="{{ url_for('admin.alunos') }}">
-          <div class="mb-3">
-            <label class="form-label">Nome completo</label>
-            <input class="form-control" name="nome" placeholder="Ex: João da Silva" required>
-          </div>
-          <div class="mb-3">
-            <label class="form-label">Data de nascimento</label>
-            <input class="form-control" type="date" name="data_nascimento" required>
-          </div>
-          <div class="mb-4">
-            <label class="form-label">Turma</label>
-            <select class="form-select" name="turma_id">
-              <option value="">Sem turma</option>
-              {% for t in turmas %}
-              <option value="{{ t.id }}">{{ t.nome }}</option>
-              {% endfor %}
-            </select>
-          </div>
-          <button type="submit" class="btn btn-primary w-100">
-            <i class="bi bi-plus-circle me-1"></i> Cadastrar
-          </button>
-        </form>
+{# ── Macro do form (reusado em criar e editar) ── #}
+{% macro form_aluno(a=None, form_id='formAluno') %}
+  {% set is_edit = a is not none %}
+  <fieldset class="stack-md" style="border:0; padding:0; margin:0">
+    <legend class="card-title" style="font-size:14px; padding:0 0 8px">Identificação</legend>
+    <div class="row g-2">
+      <div class="col-md-12">
+        <label class="label">Nome completo <span style="color:var(--bad)">*</span></label>
+        <input class="input" name="nome" required value="{{ a.nome if is_edit else '' }}">
       </div>
+      <div class="col-md-6">
+        <label class="label">CPF</label>
+        <input class="input cpf-mask" name="cpf" placeholder="000.000.000-00" maxlength="14"
+               value="{{ a.cpf_formatado if is_edit else '' }}">
+      </div>
+      <div class="col-md-6">
+        <label class="label">Data de nascimento <span style="color:var(--bad)">*</span></label>
+        <input class="input" type="date" name="data_nascimento" required
+               value="{{ a.data_nascimento if is_edit else '' }}">
+      </div>
+      <div class="col-md-6">
+        <label class="label">Sexo</label>
+        <select class="select" name="sexo">
+          <option value="">—</option>
+          {% for s in sexos %}
+          <option value="{{ s }}" {% if is_edit and a.sexo == s %}selected{% endif %}>{{ s }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-6">
+        <label class="label">Cor / Raça</label>
+        <select class="select" name="cor_raca">
+          <option value="">—</option>
+          {% for c in cor_racas %}
+          <option value="{{ c }}" {% if is_edit and a.cor_raca == c %}selected{% endif %}>{{ c }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-6">
+        <label class="label">Telefone</label>
+        <input class="input" name="telefone" placeholder="(11) 99999-9999"
+               value="{{ a.telefone if is_edit else '' }}">
+      </div>
+      <div class="col-md-6">
+        <label class="label">Status</label>
+        <select class="select" name="status">
+          {% for st in status_choices %}
+          <option value="{{ st }}" {% if (is_edit and a.status == st) or (not is_edit and st == 'ativo') %}selected{% endif %}>{{ st|capitalize }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+  </fieldset>
+
+  <fieldset class="stack-md" style="border:0; padding:0; margin:16px 0 0">
+    <legend class="card-title" style="font-size:14px; padding:0 0 8px">Endereço</legend>
+    <div class="row g-2">
+      <div class="col-md-4">
+        <label class="label">CEP</label>
+        <div class="d-flex gap-1">
+          <input class="input cep-mask" name="cep" placeholder="00000-000" maxlength="9"
+                 value="{{ a.cep_formatado if is_edit else '' }}">
+          <button type="button" class="btn btn-ghost btn-sm btn-buscar-cep" data-form="{{ form_id }}" title="Buscar CEP">
+            <i class="bi bi-search"></i>
+          </button>
+        </div>
+      </div>
+      <div class="col-md-6">
+        <label class="label">Logradouro</label>
+        <input class="input" name="logradouro" value="{{ a.logradouro if is_edit else '' }}">
+      </div>
+      <div class="col-md-2">
+        <label class="label">Número</label>
+        <input class="input" name="numero" value="{{ a.numero if is_edit else '' }}">
+      </div>
+      <div class="col-md-6">
+        <label class="label">Complemento</label>
+        <input class="input" name="complemento" value="{{ a.complemento if is_edit else '' }}">
+      </div>
+      <div class="col-md-6">
+        <label class="label">Bairro</label>
+        <input class="input" name="bairro" value="{{ a.bairro if is_edit else '' }}">
+      </div>
+      <div class="col-md-8">
+        <label class="label">Cidade</label>
+        <input class="input" name="cidade" value="{{ a.cidade if is_edit else '' }}">
+      </div>
+      <div class="col-md-4">
+        <label class="label">UF</label>
+        <select class="select" name="uf">
+          <option value="">—</option>
+          {% for uf in ufs %}
+          <option value="{{ uf }}" {% if is_edit and a.uf == uf %}selected{% endif %}>{{ uf }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+  </fieldset>
+
+  <fieldset class="stack-md" style="border:0; padding:0; margin:16px 0 0">
+    <legend class="card-title" style="font-size:14px; padding:0 0 8px">Acessibilidade</legend>
+    <label class="d-flex align-items-center gap-2" style="cursor:pointer">
+      <input type="checkbox" name="pcd" class="toggle-pcd" {% if is_edit and a.pcd %}checked{% endif %}>
+      <span>Pessoa com Deficiência (PCD)</span>
+    </label>
+    <div class="pcd-desc-wrap" style="display:{{ 'block' if is_edit and a.pcd else 'none' }}">
+      <label class="label">Descrição / Laudo</label>
+      <textarea class="input" name="pcd_descricao" rows="2">{{ a.pcd_descricao if is_edit else '' }}</textarea>
+    </div>
+  </fieldset>
+
+  <fieldset class="stack-md" style="border:0; padding:0; margin:16px 0 0">
+    <legend class="card-title" style="font-size:14px; padding:0 0 8px">LGPD</legend>
+    <label class="d-flex align-items-center gap-2" style="cursor:pointer">
+      <input type="checkbox" name="autoriza_imagem" class="toggle-imagem" {% if is_edit and a.autoriza_imagem %}checked{% endif %}>
+      <span>Autoriza uso de imagem</span>
+    </label>
+    <div class="imagem-data-wrap" style="display:{{ 'block' if is_edit and a.autoriza_imagem else 'none' }}">
+      <label class="label">Data do consentimento</label>
+      <input class="input" type="date" name="data_consentimento_imagem"
+             value="{{ a.data_consentimento_imagem if is_edit and a.data_consentimento_imagem else '' }}">
+    </div>
+  </fieldset>
+
+  <fieldset class="stack-md" style="border:0; padding:0; margin:16px 0 0">
+    <legend class="card-title" style="font-size:14px; padding:0 0 8px">Vínculos</legend>
+    <div class="row g-2">
+      <div class="col-md-6">
+        <label class="label">Turma</label>
+        <select class="select" name="turma_id">
+          <option value="">Sem turma</option>
+          {% for t in turmas %}
+          <option value="{{ t.id }}" {% if is_edit and a.turma_id == t.id %}selected{% endif %}>{{ t.nome }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-6">
+        <label class="label">Mensalidade padrão (R$)</label>
+        <input class="input" name="mensalidade_padrao" type="text" placeholder="0,00"
+               value="{{ a.mensalidade_padrao if is_edit and a.mensalidade_padrao is not none else '' }}">
+      </div>
+      <div class="col-12">
+        <label class="label">Cursos matriculados</label>
+        {% set ids_atuais = (a.matriculas | map(attribute='curso_id') | list) if is_edit else [] %}
+        <div class="row g-1">
+          {% for c in cursos %}
+          <div class="col-md-6">
+            <label class="d-flex align-items-center gap-2" style="cursor:pointer; padding:6px 0">
+              <input type="checkbox" name="curso_ids" value="{{ c.id }}"
+                     {% if c.id in ids_atuais %}checked{% endif %}>
+              <span>{{ c.titulo }}{% if c.duracao_meses %} <span class="dim">· {{ c.duracao_meses }} meses</span>{% endif %}</span>
+            </label>
+          </div>
+          {% else %}
+          <div class="col-12"><div class="dim">Nenhum curso cadastrado.</div></div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </fieldset>
+{% endmacro %}
+
+<div class="row g-3">
+
+  {# ── Formulário de cadastro ── #}
+  <div class="col-lg-5">
+    <div class="card">
+      <div class="card-h">
+        <div>
+          <div class="card-title">Cadastrar aluno</div>
+          <div class="card-sub">Ficha completa</div>
+        </div>
+        <span class="qa-icon"><i class="bi bi-person-plus-fill"></i></span>
+      </div>
+      <form method="POST" action="{{ url_for('admin.alunos') }}" id="formAluno" class="aluno-form">
+        {{ form_aluno(form_id='formAluno') }}
+        <button type="submit" class="btn btn-primary w-100" style="margin-top:16px">
+          <i class="bi bi-check-lg"></i> Cadastrar
+        </button>
+      </form>
     </div>
   </div>
 
-  <!-- Tabela -->
-  <div class="col-lg-8">
-    <div class="card">
-      <div class="card-header d-flex justify-content-between align-items-center">
-        <span><i class="bi bi-people-fill me-2"></i>Alunos cadastrados</span>
-        <span class="badge bg-secondary">{{ alunos | length }}</span>
+  {# ── Tabela ── #}
+  <div class="col-lg-7">
+    <div class="card no-pad">
+      <div class="card-h" style="padding:20px 20px 16px; margin:0">
+        <div>
+          <div class="card-title">Alunos cadastrados</div>
+          <div class="card-sub">Edite ou exclua diretamente nesta lista</div>
+        </div>
+        <span class="badge">{{ alunos | length }}</span>
       </div>
-      <div class="card-body p-0">
-        {% if alunos %}
-        <table class="table mb-0">
-          <thead>
-            <tr>
-              <th>Nome</th>
-              <th>Nascimento</th>
-              <th>Turma</th>
-              <th style="width:100px"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for a in alunos %}
-            <tr>
-              <td>{{ a.nome }}</td>
-              <td class="text-muted">{{ a.data_nascimento }}</td>
-              <td>
-                {% if a.turma %}
-                  <span class="badge badge-professor">{{ a.turma.nome }}</span>
-                {% else %}
-                  <span class="text-muted">—</span>
-                {% endif %}
-              </td>
-              <td>
-                <div class="table-actions">
-                  <button class="btn btn-sm btn-outline-primary"
-                          data-bs-toggle="modal"
-                          data-bs-target="#editModal{{ a.id }}">
-                    <i class="bi bi-pencil"></i>
-                  </button>
-                  <form method="POST" action="{{ url_for('admin.excluir_aluno', id=a.id) }}"
-                        onsubmit="return confirm('Excluir {{ a.nome }}?')">
-                    <button type="submit" class="btn btn-sm btn-danger">
-                      <i class="bi bi-trash"></i>
-                    </button>
-                  </form>
-                </div>
-              </td>
-            </tr>
-
-            <!-- Modal editar aluno -->
-            <div class="modal fade" id="editModal{{ a.id }}" tabindex="-1">
-              <div class="modal-dialog">
-                <div class="modal-content">
-                  <div class="modal-header">
-                    <h5 class="modal-title">Editar Aluno</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      <div style="padding:0 20px 12px; display:flex; gap:6px; flex-wrap:wrap">
+        <a href="{{ url_for('admin.alunos') }}"
+           class="badge {% if not filtro_status %}badge-primary{% endif %}">Todos</a>
+        {% for st in status_choices %}
+        <a href="{{ url_for('admin.alunos', status=st) }}"
+           class="badge {% if filtro_status == st %}badge-primary{% endif %}">{{ st|capitalize }}</a>
+        {% endfor %}
+      </div>
+      {% if alunos %}
+      <div class="table-responsive">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Aluno</th>
+            <th class="d-none d-md-table-cell">Idade</th>
+            <th class="d-none d-md-table-cell">Turma</th>
+            <th class="d-none d-lg-table-cell">Cursos</th>
+            <th>Status</th>
+            <th style="width:120px"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for a in alunos %}
+          <tr>
+            <td>
+              <div class="d-flex align-items-center gap-2">
+                <div class="avatar-sm">{{ a.nome[0].upper() }}</div>
+                <div>
+                  <div class="fw-600">{{ a.nome }}</div>
+                  <div class="dim" style="font-size:11.5px">
+                    matrícula #{{ '%04d' % a.id }}{% if a.cpf %} · CPF {{ a.cpf_formatado }}{% endif %}
                   </div>
-                  <form method="POST" action="{{ url_for('admin.editar_aluno', id=a.id) }}">
-                    <div class="modal-body">
-                      <div class="mb-3">
-                        <label class="form-label">Nome completo</label>
-                        <input class="form-control" name="nome" value="{{ a.nome }}" required>
-                      </div>
-                      <div class="mb-3">
-                        <label class="form-label">Data de nascimento</label>
-                        <input class="form-control" type="date" name="data_nascimento"
-                               value="{{ a.data_nascimento }}" required>
-                      </div>
-                      <div class="mb-3">
-                        <label class="form-label">Turma</label>
-                        <select class="form-select" name="turma_id">
-                          <option value="">Sem turma</option>
-                          {% for t in turmas %}
-                          <option value="{{ t.id }}" {% if a.turma_id == t.id %}selected{% endif %}>
-                            {{ t.nome }}
-                          </option>
-                          {% endfor %}
-                        </select>
-                      </div>
-                    </div>
-                    <div class="modal-footer">
-                      <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                      <button type="submit" class="btn btn-primary">Salvar</button>
-                    </div>
-                  </form>
                 </div>
               </div>
-            </div>
+            </td>
+            <td class="dim d-none d-md-table-cell">{{ a.idade }} anos</td>
+            <td class="d-none d-md-table-cell">
+              {% if a.turma %}
+                <span class="badge badge-primary">{{ a.turma.nome }}</span>
+              {% else %}
+                <span class="dim">—</span>
+              {% endif %}
+            </td>
+            <td class="d-none d-lg-table-cell">
+              {% if a.matriculas %}
+                {% for m in a.matriculas %}
+                  <span class="badge" style="margin-right:4px">{{ m.curso.titulo }}</span>
+                {% endfor %}
+              {% else %}
+                <span class="dim">—</span>
+              {% endif %}
+            </td>
+            <td>
+              {% set st = a.status or 'ativo' %}
+              {% set cls = {'ativo':'badge-ok','evadido':'badge-warn','formado':'badge-primary'} %}
+              <span class="badge {{ cls.get(st, '') }}">{{ st|capitalize }}</span>
+            </td>
+            <td>
+              <div class="table-actions">
+                <a href="{{ url_for('admin.financeiro_plano', aluno_id=a.id) }}"
+                   class="btn btn-ghost btn-sm" title="Plano de pagamento">
+                  <i class="bi bi-cash-coin"></i>
+                </a>
+                <button class="btn btn-ghost btn-sm"
+                        data-bs-toggle="modal"
+                        data-bs-target="#editModal{{ a.id }}"
+                        title="Editar">
+                  <i class="bi bi-pencil"></i>
+                </button>
+                <form method="POST" action="{{ url_for('admin.excluir_aluno', id=a.id) }}"
+                      onsubmit="return confirm('Excluir {{ a.nome }}?')" style="display:inline">
+                  <button type="submit" class="btn btn-ghost btn-sm" title="Excluir" style="color:var(--bad)">
+                    <i class="bi bi-trash"></i>
+                  </button>
+                </form>
+              </div>
+            </td>
+          </tr>
 
-            {% endfor %}
-          </tbody>
-        </table>
-        {% else %}
-        <div class="text-center py-5 text-muted">
-          <i class="bi bi-people" style="font-size:2rem; opacity:0.3"></i>
-          <p class="mt-2 mb-0">Nenhum aluno cadastrado ainda.</p>
-        </div>
-        {% endif %}
+          <!-- Modal editar -->
+          <div class="modal fade" id="editModal{{ a.id }}" tabindex="-1">
+            <div class="modal-dialog modal-lg">
+              <div class="modal-content">
+                <div class="modal-header">
+                  <h5 class="modal-title">Editar aluno · {{ a.nome }}</h5>
+                  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar">&times;</button>
+                </div>
+                <form method="POST" action="{{ url_for('admin.editar_aluno', id=a.id) }}"
+                      id="formEdit{{ a.id }}" class="aluno-form">
+                  <div class="modal-body">
+                    {{ form_aluno(a=a, form_id='formEdit' ~ a.id) }}
+                  </div>
+                  <div class="modal-footer">
+                    <button type="button" class="btn btn-ghost" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Salvar</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </div>
+          {% endfor %}
+        </tbody>
+      </table>
       </div>
+      {% else %}
+      <div class="empty-state">
+        <i class="bi bi-people"></i>
+        <p>Nenhum aluno cadastrado ainda.</p>
+      </div>
+      {% endif %}
     </div>
   </div>
-
 </div>
+
+<script>
+// Máscara de CPF
+function aplicarMascaraCPF(input) {
+  input.addEventListener('input', () => {
+    let v = input.value.replace(/\D/g, '').slice(0, 11);
+    if (v.length > 9) v = v.slice(0,3) + '.' + v.slice(3,6) + '.' + v.slice(6,9) + '-' + v.slice(9);
+    else if (v.length > 6) v = v.slice(0,3) + '.' + v.slice(3,6) + '.' + v.slice(6);
+    else if (v.length > 3) v = v.slice(0,3) + '.' + v.slice(3);
+    input.value = v;
+  });
+}
+
+// Máscara de CEP
+function aplicarMascaraCEP(input) {
+  input.addEventListener('input', () => {
+    let v = input.value.replace(/\D/g, '').slice(0, 8);
+    if (v.length > 5) v = v.slice(0,5) + '-' + v.slice(5);
+    input.value = v;
+  });
+}
+
+// ViaCEP
+async function buscarViaCEP(form) {
+  const cepInput = form.querySelector('input[name="cep"]');
+  if (!cepInput) return;
+  const cep = cepInput.value.replace(/\D/g, '');
+  if (cep.length !== 8) {
+    alert('Digite um CEP válido (8 dígitos).');
+    return;
+  }
+  try {
+    const r = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
+    const j = await r.json();
+    if (j.erro) { alert('CEP não encontrado.'); return; }
+    const set = (n, v) => { const i = form.querySelector(`[name="${n}"]`); if (i && v) i.value = v; };
+    set('logradouro', j.logradouro);
+    set('bairro', j.bairro);
+    set('cidade', j.localidade);
+    set('uf', j.uf);
+  } catch (e) {
+    alert('Falha ao consultar ViaCEP.');
+  }
+}
+
+document.querySelectorAll('.cpf-mask').forEach(aplicarMascaraCPF);
+document.querySelectorAll('.cep-mask').forEach(aplicarMascaraCEP);
+document.querySelectorAll('.btn-buscar-cep').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const form = document.getElementById(btn.dataset.form);
+    if (form) buscarViaCEP(form);
+  });
+});
+
+// Toggle PCD
+document.querySelectorAll('.aluno-form').forEach(form => {
+  const togglePcd = form.querySelector('.toggle-pcd');
+  const pcdWrap = form.querySelector('.pcd-desc-wrap');
+  if (togglePcd && pcdWrap) {
+    togglePcd.addEventListener('change', () => {
+      pcdWrap.style.display = togglePcd.checked ? 'block' : 'none';
+    });
+  }
+  // Toggle autorização de imagem
+  const toggleImg = form.querySelector('.toggle-imagem');
+  const imgWrap = form.querySelector('.imagem-data-wrap');
+  const dataField = form.querySelector('input[name="data_consentimento_imagem"]');
+  if (toggleImg && imgWrap) {
+    toggleImg.addEventListener('change', () => {
+      imgWrap.style.display = toggleImg.checked ? 'block' : 'none';
+      if (toggleImg.checked && dataField && !dataField.value) {
+        dataField.value = new Date().toISOString().slice(0, 10);
+      }
+    });
+  }
+});
+</script>
+
 {% endblock %}

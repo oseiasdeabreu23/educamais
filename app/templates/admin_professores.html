@@ -28,6 +28,21 @@
               {% endfor %}
             </select>
           </div>
+          <div class="mb-3">
+            <label class="form-label">
+              Usuário de acesso
+              <small class="text-muted">(opcional)</small>
+            </label>
+            <select class="form-select" name="user_id">
+              <option value="">Sem vínculo (criar acesso depois)</option>
+              {% for u in users_disponiveis %}
+              <option value="{{ u.id }}">{{ u.nome }} — {{ u.email }}</option>
+              {% endfor %}
+            </select>
+            <small class="text-muted d-block mt-1">
+              Vincule a um login do tipo "professor" criado em /admin/usuarios.
+            </small>
+          </div>
           <div class="mb-4">
             <label class="form-label">
               Disciplinas
@@ -68,6 +83,7 @@
               <th>Nome</th>
               <th>Turma</th>
               <th>Disciplinas</th>
+              <th>Acesso</th>
               <th style="width:100px"></th>
             </tr>
           </thead>
@@ -96,6 +112,13 @@
                   {% endfor %}
                 {% else %}
                   <span class="text-muted">—</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if p.user %}
+                  <small>{{ p.user.email }}</small>
+                {% else %}
+                  <span class="badge bg-warning text-dark">sem login</span>
                 {% endif %}
               </td>
               <td>
@@ -137,6 +160,23 @@
                           <option value="{{ t.id }}" {% if p.turma_id == t.id %}selected{% endif %}>
                             {{ t.nome }}
                           </option>
+                          {% endfor %}
+                        </select>
+                      </div>
+                      <div class="mb-3">
+                        <label class="form-label">
+                          Usuário de acesso
+                          <small class="text-muted">(opcional)</small>
+                        </label>
+                        <select class="form-select" name="user_id">
+                          <option value="">Sem vínculo</option>
+                          {% if p.user %}
+                          <option value="{{ p.user.id }}" selected>
+                            {{ p.user.nome }} — {{ p.user.email }}
+                          </option>
+                          {% endif %}
+                          {% for u in users_disponiveis %}
+                          <option value="{{ u.id }}">{{ u.nome }} — {{ u.email }}</option>
                           {% endfor %}
                         </select>
                       </div>

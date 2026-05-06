@@ -183,64 +183,76 @@
 
 
 <style>
-/* tabela compacta estilo planilha */
-.table-notas { border-collapse: separate; border-spacing: 0; font-size: 0.85rem; }
+/* planilha de notas */
+.table-notas { border-collapse: separate; border-spacing: 0; font-size: 13px; }
 .table-notas thead th {
-  background: #f1f5f9;
-  font-size: 0.72rem;
+  background: var(--surface-2);
+  font-size: 10.5px;
   text-transform: uppercase;
-  letter-spacing: .05em;
+  letter-spacing: .08em;
+  color: var(--text-3);
+  font-weight: 600;
   white-space: nowrap;
-  padding: 8px 4px;
+  padding: 10px 4px;
   position: sticky;
   top: 0;
   z-index: 2;
+  border-bottom: 1px solid var(--border);
 }
-.table-notas tbody td { vertical-align: middle; padding: 4px; }
-.table-notas tbody tr:hover { background: #f8fafc; }
-.col-aluno  { min-width: 180px; }
-.col-mes    { width: 62px; }
-.col-media  { width: 70px; }
-.col-status { width: 130px; }
+.table-notas tbody td {
+  vertical-align: middle;
+  padding: 6px 4px;
+  border-bottom: 1px solid var(--border);
+}
+.table-notas tbody tr:last-child td { border-bottom: 0; }
+.table-notas tbody tr:hover td { background: var(--surface-2); }
+.col-aluno  { min-width: 200px; }
+.col-mes    { width: 64px; }
+.col-media  { width: 76px; }
+.col-status { width: 140px; }
 
-/* coluna aluno fixa à esquerda */
+/* coluna aluno fixa */
 .sticky-col {
   position: sticky;
   left: 0;
-  background: #fff;
+  background: var(--surface);
   z-index: 1;
-  border-right: 2px solid #e2e8f0 !important;
+  border-right: 1px solid var(--border) !important;
 }
-.table-notas thead .sticky-col { z-index: 3; background: #f1f5f9; }
-.table-notas tfoot .sticky-col  { background: #f8fafc; }
+.table-notas thead .sticky-col { z-index: 3; background: var(--surface-2); }
+.table-notas tfoot .sticky-col { background: var(--surface-2); }
+.table-notas tbody tr:hover .sticky-col { background: var(--surface-2); }
 
 /* input das notas */
 .nota-input {
   width: 54px;
-  padding: 3px 4px;
-  border: 1.5px solid #e2e8f0;
-  border-radius: 5px;
-  font-size: 0.82rem;
+  height: 36px;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-family: var(--font-display);
+  font-size: 13px;
   font-weight: 600;
   text-align: center;
-  background: transparent;
-  transition: border-color .15s, background .15s;
+  background: var(--surface);
+  color: var(--text-3);
+  transition: border-color .15s, background .15s, color .15s;
   -moz-appearance: textfield;
+  outline: none;
 }
 .nota-input::-webkit-outer-spin-button,
 .nota-input::-webkit-inner-spin-button { -webkit-appearance: none; }
 .nota-input:focus {
-  outline: none;
-  border-color: var(--primary, #6366f1);
-  box-shadow: 0 0 0 3px rgba(99,102,241,.15);
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-soft);
 }
-.nota-input.n-baixa  { border-color: #ef4444; background: #fff5f5; color: #c53030; }
-.nota-input.n-media  { border-color: #f59e0b; background: #fffbeb; color: #92400e; }
-.nota-input.n-alta   { border-color: #10b981; background: #f0fdf4; color: #065f46; }
+.nota-input.n-baixa  { background: var(--score-bad-bg);  color: var(--score-bad-fg);  border-color: rgba(239,68,68,.4);  font-weight: 700; }
+.nota-input.n-media  { background: var(--score-warn-bg); color: var(--score-warn-fg); border-color: rgba(245,158,11,.4); font-weight: 700; }
+.nota-input.n-alta   { background: var(--score-ok-bg);   color: var(--score-ok-fg);   border-color: rgba(16,185,129,.4); font-weight: 700; }
 
-.badge-abaixo { background: #ef4444 !important; }
-.badge-namedia { background: #f59e0b !important; }
-.badge-acima   { background: #10b981 !important; }
+.badge-abaixo  { background: var(--score-bad-bg)  !important; color: var(--score-bad-fg)  !important; }
+.badge-namedia { background: var(--score-warn-bg) !important; color: var(--score-warn-fg) !important; }
+.badge-acima   { background: var(--score-ok-bg)   !important; color: var(--score-ok-fg)   !important; }
 </style>
 
 <script>

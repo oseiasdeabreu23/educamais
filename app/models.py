@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, date
 from flask_login import UserMixin
 from app import db, login_manager
 
@@ -44,6 +44,34 @@ class Aluno(db.Model):
     data_nascimento = db.Column(db.Date, nullable=False)
     turma_id = db.Column(db.Integer, db.ForeignKey('turmas.id'), nullable=True)
     user_id = db.Column(db.Integer, db.ForeignKey('usuarios.id'), nullable=True, unique=True)
+    mensalidade_padrao = db.Column(db.Numeric(10, 2), nullable=True)
+
+    # Identificação ampliada (cadastro v2)
+    cpf = db.Column(db.String(11), unique=True, nullable=True)  # só dígitos
+    sexo = db.Column(db.String(30), nullable=True)
+    cor_raca = db.Column(db.String(30), nullable=True)
+    telefone = db.Column(db.String(20), nullable=True)
+
+    # Endereço desmembrado
+    cep = db.Column(db.String(8), nullable=True)  # só dígitos
+    logradouro = db.Column(db.String(150), nullable=True)
+    numero = db.Column(db.String(10), nullable=True)
+    complemento = db.Column(db.String(100), nullable=True)
+    bairro = db.Column(db.String(100), nullable=True)
+    cidade = db.Column(db.String(100), nullable=True)
+    uf = db.Column(db.String(2), nullable=True)
+
+    # Acessibilidade
+    pcd = db.Column(db.Boolean, nullable=False, default=False)
+    pcd_descricao = db.Column(db.Text, nullable=True)
+
+    # Status do vínculo escolar
+    status = db.Column(db.String(20), nullable=False, default='ativo')
+    # ativo | transferido | evadido | formado
+
+    # LGPD — autorização de uso de imagem
+    autoriza_imagem = db.Column(db.Boolean, nullable=False, default=False)
+    data_consentimento_imagem = db.Column(db.Date, nullable=True)
 
     user = db.relationship('User', backref=db.backref('aluno_profile', uselist=False))
     responsaveis = db.relationship('Responsavel', secondary='aluno_responsavel', back_populates='alunos')
@@ -51,6 +79,31 @@ class Aluno(db.Model):
     frequencias = db.relationship('Frequencia', backref='aluno', lazy=True)
     observacoes = db.relationship('Observacao', backref='aluno', lazy=True)
     matriculas = db.relationship('MatriculaCurso', backref='aluno', lazy=True)
+    mensalidades = db.relationship('Mensalidade', backref='aluno', lazy=True)
+
+    @property
+    def idade(self):
+        if not self.data_nascimento:
+            return None
+        hoje = date.today()
+        anos = hoje.year - self.data_nascimento.year
+        if (hoje.month, hoje.day) < (self.data_nascimento.month, self.data_nascimento.day):
+            anos -= 1
+        return anos
+
+    @property
+    def cpf_formatado(self):
+        c = self.cpf or ''
+        if len(c) != 11:
+            return c
+        return f'{c[:3]}.{c[3:6]}.{c[6:9]}-{c[9:]}'
+
+    @property
+    def cep_formatado(self):
+        c = self.cep or ''
+        if len(c) != 8:
+            return c
+        return f'{c[:5]}-{c[5:]}'
 
 
 class Responsavel(db.Model):
@@ -75,7 +128,9 @@ class Professor(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     nome = db.Column(db.String(100), nullable=False)
     turma_id = db.Column(db.Integer, db.ForeignKey('turmas.id'), nullable=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('usuarios.id'), nullable=True, unique=True)
 
+    user = db.relationship('User', backref=db.backref('professor_profile', uselist=False))
     turma = db.relationship('Turma', backref='professores', lazy=True)
     disciplinas = db.relationship(
         'Disciplina',
@@ -140,6 +195,7 @@ class Curso(db.Model):
     descricao = db.Column(db.Text, nullable=True)
     capa_url = db.Column(db.String(500), nullable=True)
     ativo = db.Column(db.Boolean, default=True)
+    duracao_meses = db.Column(db.Integer, nullable=True)
     modulos = db.relationship('Modulo', backref='curso', lazy=True,
                               order_by='Modulo.ordem', cascade='all, delete-orphan')
     matriculas = db.relationship('MatriculaCurso', backref='curso', lazy=True,
@@ -191,11 +247,118 @@ class ProgressoVideoaula(db.Model):
     )
 
 
+class Mensalidade(db.Model):
+    __tablename__ = 'mensalidades'
+    id = db.Column(db.Integer, primary_key=True)
+    aluno_id = db.Column(db.Integer, db.ForeignKey('alunos.id'), nullable=False)
+    responsavel_id = db.Column(db.Integer, db.ForeignKey('responsaveis.id'), nullable=True)
+    plano_id = db.Column(db.Integer, db.ForeignKey('planos_pagamento.id'), nullable=True)
+    mes = db.Column(db.Integer, nullable=False)
+    ano = db.Column(db.Integer, nullable=False)
+    valor = db.Column(db.Numeric(10, 2), nullable=False)
+    vencimento = db.Column(db.Date, nullable=False)
+    observacao = db.Column(db.Text, nullable=True)
+    cancelada_em = db.Column(db.DateTime, nullable=True)
+    criada_em = db.Column(db.DateTime, default=datetime.utcnow)
+
+    responsavel = db.relationship('Responsavel', backref='mensalidades', lazy=True)
+    boletos = db.relationship('Boleto', backref='mensalidade', lazy=True,
+                              cascade='all, delete-orphan')
+    __table_args__ = (
+        db.UniqueConstraint('aluno_id', 'mes', 'ano', name='uq_mensalidade_aluno_mes_ano'),
+    )
+
+
+class PlanoPagamento(db.Model):
+    __tablename__ = 'planos_pagamento'
+    id = db.Column(db.Integer, primary_key=True)
+    aluno_id = db.Column(db.Integer, db.ForeignKey('alunos.id'), nullable=False)
+    n_parcelas = db.Column(db.Integer, nullable=False)
+    valor_parcela = db.Column(db.Numeric(10, 2), nullable=False)
+    dia_vencimento = db.Column(db.Integer, nullable=False, default=10)
+    data_primeira = db.Column(db.Date, nullable=False)
+    status = db.Column(db.String(20), nullable=False, default='ativo')
+    # ativo | cancelado | concluido
+    observacao = db.Column(db.Text, nullable=True)
+    criado_em = db.Column(db.DateTime, default=datetime.utcnow)
+    cancelado_em = db.Column(db.DateTime, nullable=True)
+
+    aluno = db.relationship('Aluno', backref=db.backref('planos_pagamento', lazy=True))
+    mensalidades = db.relationship('Mensalidade', backref='plano', lazy=True)
+
+
+class Boleto(db.Model):
+    __tablename__ = 'boletos'
+    id = db.Column(db.Integer, primary_key=True)
+    mensalidade_id = db.Column(db.Integer, db.ForeignKey('mensalidades.id'), nullable=True)
+    cora_boleto_id = db.Column(db.String(100), nullable=True, index=True)
+    status = db.Column(db.String(20), nullable=False, default='aberto')
+    valor = db.Column(db.Numeric(10, 2), nullable=False)
+    vencimento = db.Column(db.Date, nullable=False)
+    emitido_em = db.Column(db.DateTime, default=datetime.utcnow)
+    pago_em = db.Column(db.DateTime, nullable=True)
+    link_pdf = db.Column(db.String(500), nullable=True)
+    link_boleto = db.Column(db.String(500), nullable=True)
+
+
+class CategoriaDespesa(db.Model):
+    __tablename__ = 'categorias_despesa'
+    id = db.Column(db.Integer, primary_key=True)
+    nome = db.Column(db.String(80), nullable=False, unique=True)
+    cor = db.Column(db.String(20), nullable=True)
+    movimentacoes = db.relationship('Movimentacao', backref='categoria', lazy=True)
+
+
+class Movimentacao(db.Model):
+    __tablename__ = 'movimentacoes'
+    id = db.Column(db.Integer, primary_key=True)
+    tipo = db.Column(db.String(10), nullable=False)
+    categoria_id = db.Column(db.Integer, db.ForeignKey('categorias_despesa.id'), nullable=True)
+    descricao = db.Column(db.String(200), nullable=False)
+    valor = db.Column(db.Numeric(10, 2), nullable=False)
+    data = db.Column(db.Date, nullable=False, default=datetime.utcnow)
+    boleto_id = db.Column(db.Integer, db.ForeignKey('boletos.id'), nullable=True)
+    comprovante_path = db.Column(db.String(500), nullable=True)
+    criada_em = db.Column(db.DateTime, default=datetime.utcnow)
+    criado_por_id = db.Column(db.Integer, db.ForeignKey('usuarios.id'), nullable=True)
+
+    boleto = db.relationship('Boleto', backref='movimentacoes', lazy=True)
+    criado_por = db.relationship('User', backref='movimentacoes', lazy=True)
+
+
 class ConfigSistema(db.Model):
     __tablename__ = 'config_sistema'
     id = db.Column(db.Integer, primary_key=True)
     nome = db.Column(db.String(100), nullable=False, default='EducaMais')
     logo_path = db.Column(db.String(500), nullable=True)
+
+
+# --------------------------------------------------------------------------- #
+# Estado do Cora mock (persistido no DB pra funcionar em serverless).
+# Em prod com CORA_MODE=real estas tabelas ficam vazias — o estado vive no Cora.
+# --------------------------------------------------------------------------- #
+class CoraMockBoleto(db.Model):
+    __tablename__ = 'cora_mock_boletos'
+    id = db.Column(db.Integer, primary_key=True)
+    cora_id = db.Column(db.String(64), unique=True, nullable=False, index=True)
+    status = db.Column(db.String(20), nullable=False, default='aberto')
+    valor = db.Column(db.Numeric(10, 2), nullable=False)
+    vencimento = db.Column(db.Date, nullable=False)
+    pagador = db.Column(db.JSON, nullable=True)
+    descricao = db.Column(db.Text, nullable=True)
+    emitido_em = db.Column(db.DateTime, default=datetime.utcnow)
+    pago_em = db.Column(db.DateTime, nullable=True)
+
+
+class CoraMockMovimentacao(db.Model):
+    __tablename__ = 'cora_mock_movimentacoes'
+    id = db.Column(db.Integer, primary_key=True)
+    mov_id = db.Column(db.String(64), unique=True, nullable=False)
+    tipo = db.Column(db.String(10), nullable=False)
+    valor = db.Column(db.Numeric(10, 2), nullable=False)
+    descricao = db.Column(db.String(300), nullable=True)
+    data = db.Column(db.Date, nullable=False)
+    cora_boleto_id = db.Column(db.String(64), nullable=True)
 
 
 @login_manager.user_loader

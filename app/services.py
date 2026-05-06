@@ -1,10 +1,54 @@
+import re
 from datetime import date
 from app.models import Aluno, Nota, Frequencia, Observacao
 from app import db
 
 
-def media_turma(turma):
-    alunos = turma.alunos
+# ── CPF / CEP / UF ─────────────────────────────────────────────────────────────
+
+UFS_BR = ('AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MT',
+          'MS', 'MG', 'PA', 'PB', 'PR', 'PE', 'PI', 'RJ', 'RN', 'RS', 'RO',
+          'RR', 'SC', 'SP', 'SE', 'TO')
+
+
+def so_digitos(valor):
+    if not valor:
+        return ''
+    return re.sub(r'\D', '', str(valor))
+
+
+def cpf_valido(cpf):
+    """Valida CPF pelo algoritmo dos dígitos verificadores (somente dígitos)."""
+    cpf = so_digitos(cpf)
+    if len(cpf) != 11 or cpf == cpf[0] * 11:
+        return False
+    for i in (9, 10):
+        soma = sum(int(cpf[n]) * ((i + 1) - n) for n in range(i))
+        dig = (soma * 10) % 11
+        if dig == 10:
+            dig = 0
+        if dig != int(cpf[i]):
+            return False
+    return True
+
+
+def cep_valido(cep):
+    return len(so_digitos(cep)) == 8
+
+
+def uf_valida(uf):
+    return (uf or '').strip().upper() in UFS_BR
+
+
+def _alunos_filtro_status(query, incluir_inativos=False):
+    """Aplica filtro de status='ativo' a uma query de Aluno, salvo override."""
+    if incluir_inativos:
+        return query
+    return query.filter(Aluno.status == 'ativo')
+
+
+def media_turma(turma, incluir_inativos=False):
+    alunos = [a for a in turma.alunos if incluir_inativos or a.status == 'ativo']
     if not alunos:
         return 0
 
@@ -17,17 +61,20 @@ def media_turma(turma):
     return round(soma / n, 2) if n > 0 else 0
 
 
-def frequencia_geral():
-    total = Frequencia.query.count()
+def frequencia_geral(incluir_inativos=False):
+    q = Frequencia.query
+    if not incluir_inativos:
+        q = q.join(Aluno, Frequencia.aluno_id == Aluno.id).filter(Aluno.status == 'ativo')
+    total = q.count()
     if total == 0:
         return 0
 
-    ausencias = Frequencia.query.filter_by(status='falta').count()
+    ausencias = q.filter(Frequencia.status == 'falta').count()
     return round((total - ausencias) / total * 100, 2)
 
 
-def alunos_baixo_desempenho(limite=5.5):
-    alunos = Aluno.query.all()
+def alunos_baixo_desempenho(limite=5.5, incluir_inativos=False):
+    alunos = _alunos_filtro_status(Aluno.query, incluir_inativos).all()
     selecionados = []
     for aluno in alunos:
         media = media_aluno(aluno)

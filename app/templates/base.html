@@ -4,214 +4,314 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ config_sistema.nome }}</title>
+
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem('arvorecer-theme') || 'light';
+        document.documentElement.setAttribute('data-theme', t);
+      } catch (e) { document.documentElement.setAttribute('data-theme', 'light'); }
+    })();
+  </script>
+
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
-<body>
+<body class="app">
 
 {% if current_user.is_authenticated %}
 
-<!-- Sidebar -->
-<nav class="sidebar">
-  <div class="sidebar-brand">
-    {% if config_sistema.logo_path %}
-    <img src="{{ url_for('static', filename='uploads/' + config_sistema.logo_path) }}"
-         alt="{{ config_sistema.nome }}"
-         style="max-height:48px; max-width:170px; object-fit:contain; margin-bottom:4px; display:block">
-    {% else %}
-    <h4>{{ config_sistema.nome }}</h4>
-    {% endif %}
-    <small>
-      {% if current_user.tipo == 'admin' %}Administrador
-      {% elif current_user.tipo == 'professor' %}Professor
-      {% elif current_user.tipo == 'aluno' %}Aluno
-      {% else %}Responsável{% endif %}
-    </small>
-  </div>
+  {% set role_label =
+    'Administrador'  if current_user.tipo == 'admin'
+    else 'Professor' if current_user.tipo == 'professor'
+    else 'Aluno'     if current_user.tipo == 'aluno'
+    else 'Responsável'
+  %}
 
-  <div class="sidebar-nav">
-    {% if current_user.tipo == 'admin' %}
-      <div class="sidebar-section-label">Principal</div>
-      <div class="nav-item">
-        <a class="nav-link {% if request.endpoint == 'admin.dashboard' %}active{% endif %}"
-           href="{{ url_for('admin.dashboard') }}">
-          <i class="bi bi-grid-fill"></i> Dashboard
-        </a>
+  <aside class="sidebar" id="sidebar">
+    <a class="sidebar-brand" href="#">
+      <div class="brand-mark">
+        {% if config_sistema.logo_path %}
+          <img src="{{ upload_url(config_sistema.logo_path) }}"
+               alt="{{ config_sistema.nome }}">
+        {% else %}
+          <i class="bi bi-tree-fill"></i>
+        {% endif %}
       </div>
+      <div style="min-width:0">
+        <div class="brand-name">{{ config_sistema.nome }}</div>
+        <div class="brand-role">{{ role_label }}</div>
+      </div>
+    </a>
 
-      <div class="sidebar-section-label">Cadastros</div>
-      <div class="nav-item">
-        <a class="nav-link {% if request.endpoint == 'admin.alunos' %}active{% endif %}"
-           href="{{ url_for('admin.alunos') }}">
-          <i class="bi bi-people-fill"></i> Alunos
-        </a>
-      </div>
-      <div class="nav-item">
-        <a class="nav-link {% if request.endpoint == 'admin.turmas' %}active{% endif %}"
-           href="{{ url_for('admin.turmas') }}">
-          <i class="bi bi-collection-fill"></i> Turmas
-        </a>
-      </div>
-      <div class="nav-item">
-        <a class="nav-link {% if request.endpoint == 'admin.disciplinas' %}active{% endif %}"
-           href="{{ url_for('admin.disciplinas') }}">
-          <i class="bi bi-book-fill"></i> Disciplinas
-        </a>
-      </div>
-      <div class="nav-item">
-        <a class="nav-link {% if request.endpoint == 'admin.professores' %}active{% endif %}"
-           href="{{ url_for('admin.professores') }}">
-          <i class="bi bi-person-video3"></i> Professores
-        </a>
-      </div>
-      <div class="nav-item">
-        <a class="nav-link {% if request.endpoint == 'admin.responsaveis' %}active{% endif %}"
-           href="{{ url_for('admin.responsaveis') }}">
-          <i class="bi bi-person-heart"></i> Responsáveis
-        </a>
-      </div>
+    <nav class="sidebar-nav">
+      {% if current_user.tipo == 'admin' %}
+        <div class="nav-section">
+          <div class="nav-label">Principal</div>
+          <a class="nav-item {% if request.endpoint == 'admin.dashboard' %}active{% endif %}"
+             href="{{ url_for('admin.dashboard') }}">
+            <span class="nav-icon"><i class="bi bi-grid-fill"></i></span>
+            <span>Dashboard</span>
+          </a>
+        </div>
 
-      <div class="sidebar-section-label">Cursos</div>
-      <div class="nav-item">
-        <a class="nav-link {% if request.endpoint in ('admin.cursos','admin.curso_detalhe') %}active{% endif %}"
-           href="{{ url_for('admin.cursos') }}">
-          <i class="bi bi-play-circle-fill"></i> Cursos
-        </a>
-      </div>
+        <div class="nav-section">
+          <div class="nav-label">Cadastros</div>
+          <a class="nav-item {% if request.endpoint == 'admin.alunos' %}active{% endif %}"
+             href="{{ url_for('admin.alunos') }}">
+            <span class="nav-icon"><i class="bi bi-person-fill"></i></span>
+            <span>Alunos</span>
+          </a>
+          <a class="nav-item {% if request.endpoint == 'admin.turmas' %}active{% endif %}"
+             href="{{ url_for('admin.turmas') }}">
+            <span class="nav-icon"><i class="bi bi-people-fill"></i></span>
+            <span>Turmas</span>
+          </a>
+          <a class="nav-item {% if request.endpoint == 'admin.disciplinas' %}active{% endif %}"
+             href="{{ url_for('admin.disciplinas') }}">
+            <span class="nav-icon"><i class="bi bi-book-fill"></i></span>
+            <span>Disciplinas</span>
+          </a>
+          <a class="nav-item {% if request.endpoint == 'admin.professores' %}active{% endif %}"
+             href="{{ url_for('admin.professores') }}">
+            <span class="nav-icon"><i class="bi bi-mortarboard-fill"></i></span>
+            <span>Professores</span>
+          </a>
+          <a class="nav-item {% if request.endpoint == 'admin.responsaveis' %}active{% endif %}"
+             href="{{ url_for('admin.responsaveis') }}">
+            <span class="nav-icon"><i class="bi bi-heart-fill"></i></span>
+            <span>Responsáveis</span>
+          </a>
+        </div>
 
-      <div class="sidebar-section-label">Acesso</div>
-      <div class="nav-item">
-        <a class="nav-link {% if request.endpoint == 'admin.usuarios' %}active{% endif %}"
-           href="{{ url_for('admin.usuarios') }}">
-          <i class="bi bi-shield-lock-fill"></i> Usuários
-        </a>
-      </div>
+        <div class="nav-section">
+          <div class="nav-label">Cursos</div>
+          <a class="nav-item {% if request.endpoint in ('admin.cursos','admin.curso_detalhe') %}active{% endif %}"
+             href="{{ url_for('admin.cursos') }}">
+            <span class="nav-icon"><i class="bi bi-play-btn-fill"></i></span>
+            <span>Cursos online</span>
+          </a>
+        </div>
 
-      <div class="sidebar-section-label">Sistema</div>
-      <div class="nav-item">
-        <a class="nav-link {% if request.endpoint == 'admin.configuracoes' %}active{% endif %}"
-           href="{{ url_for('admin.configuracoes') }}">
-          <i class="bi bi-gear-fill"></i> Configurações
-        </a>
-      </div>
+        <div class="nav-section">
+          <div class="nav-label">Financeiro</div>
+          <a class="nav-item {% if request.endpoint == 'admin.financeiro' %}active{% endif %}"
+             href="{{ url_for('admin.financeiro') }}">
+            <span class="nav-icon"><i class="bi bi-cash-coin"></i></span>
+            <span>Dashboard</span>
+          </a>
+          <a class="nav-item {% if request.endpoint == 'admin.financeiro_mensalidades' %}active{% endif %}"
+             href="{{ url_for('admin.financeiro_mensalidades') }}">
+            <span class="nav-icon"><i class="bi bi-calendar3"></i></span>
+            <span>Mensalidades</span>
+          </a>
+          <a class="nav-item {% if request.endpoint == 'admin.financeiro_boletos' %}active{% endif %}"
+             href="{{ url_for('admin.financeiro_boletos') }}">
+            <span class="nav-icon"><i class="bi bi-receipt"></i></span>
+            <span>Boletos</span>
+          </a>
+          <a class="nav-item {% if request.endpoint == 'admin.financeiro_inadimplentes' %}active{% endif %}"
+             href="{{ url_for('admin.financeiro_inadimplentes') }}">
+            <span class="nav-icon"><i class="bi bi-person-exclamation"></i></span>
+            <span>Inadimplentes</span>
+          </a>
+          <a class="nav-item {% if request.endpoint == 'admin.financeiro_fluxo_caixa' %}active{% endif %}"
+             href="{{ url_for('admin.financeiro_fluxo_caixa') }}">
+            <span class="nav-icon"><i class="bi bi-arrow-down-up"></i></span>
+            <span>Fluxo de caixa</span>
+          </a>
+        </div>
 
-    {% elif current_user.tipo == 'professor' %}
-      <div class="sidebar-section-label">Principal</div>
-      <div class="nav-item">
-        <a class="nav-link {% if request.endpoint == 'professor.dashboard' %}active{% endif %}"
-           href="{{ url_for('professor.dashboard') }}">
-          <i class="bi bi-grid-fill"></i> Dashboard
-        </a>
-      </div>
+        <div class="nav-section">
+          <div class="nav-label">Sistema</div>
+          <a class="nav-item {% if request.endpoint == 'admin.usuarios' %}active{% endif %}"
+             href="{{ url_for('admin.usuarios') }}">
+            <span class="nav-icon"><i class="bi bi-shield-lock-fill"></i></span>
+            <span>Usuários</span>
+          </a>
+          <a class="nav-item {% if request.endpoint and request.endpoint.startswith('admin.backup') %}active{% endif %}"
+             href="{{ url_for('admin.backup') }}">
+            <span class="nav-icon"><i class="bi bi-cloud-arrow-down-fill"></i></span>
+            <span>Backup</span>
+          </a>
+          <a class="nav-item {% if request.endpoint == 'admin.configuracoes' %}active{% endif %}"
+             href="{{ url_for('admin.configuracoes') }}">
+            <span class="nav-icon"><i class="bi bi-gear-fill"></i></span>
+            <span>Configurações</span>
+          </a>
+        </div>
 
-      <div class="sidebar-section-label">Ações</div>
-      <div class="nav-item">
-        <a class="nav-link {% if request.endpoint == 'professor.lancar_nota' %}active{% endif %}"
-           href="{{ url_for('professor.lancar_nota') }}">
-          <i class="bi bi-pencil-fill"></i> Lançar Nota
-        </a>
-      </div>
-      <div class="nav-item">
-        <a class="nav-link {% if request.endpoint == 'professor.registrar_frequencia' %}active{% endif %}"
-           href="{{ url_for('professor.registrar_frequencia') }}">
-          <i class="bi bi-calendar-check-fill"></i> Frequência
-        </a>
-      </div>
-      <div class="nav-item">
-        <a class="nav-link {% if request.endpoint == 'professor.criar_atividade' %}active{% endif %}"
-           href="{{ url_for('professor.criar_atividade') }}">
-          <i class="bi bi-clipboard-fill"></i> Atividades
-        </a>
-      </div>
-      <div class="nav-item">
-        <a class="nav-link {% if request.endpoint == 'professor.observacoes' %}active{% endif %}"
-           href="{{ url_for('professor.observacoes') }}">
-          <i class="bi bi-chat-square-text-fill"></i> Observações
-        </a>
-      </div>
+      {% elif current_user.tipo == 'professor' %}
+        <div class="nav-section">
+          <div class="nav-label">Principal</div>
+          <a class="nav-item {% if request.endpoint == 'professor.dashboard' %}active{% endif %}"
+             href="{{ url_for('professor.dashboard') }}">
+            <span class="nav-icon"><i class="bi bi-grid-fill"></i></span>
+            <span>Dashboard</span>
+          </a>
+        </div>
+        <div class="nav-section">
+          <div class="nav-label">Acadêmico</div>
+          <a class="nav-item {% if request.endpoint == 'professor.lancar_nota' %}active{% endif %}"
+             href="{{ url_for('professor.lancar_nota') }}">
+            <span class="nav-icon"><i class="bi bi-pencil-fill"></i></span>
+            <span>Lançar Notas</span>
+          </a>
+          <a class="nav-item {% if request.endpoint == 'professor.registrar_frequencia' %}active{% endif %}"
+             href="{{ url_for('professor.registrar_frequencia') }}">
+            <span class="nav-icon"><i class="bi bi-check-circle-fill"></i></span>
+            <span>Frequência</span>
+          </a>
+          <a class="nav-item {% if request.endpoint == 'professor.criar_atividade' %}active{% endif %}"
+             href="{{ url_for('professor.criar_atividade') }}">
+            <span class="nav-icon"><i class="bi bi-clipboard-fill"></i></span>
+            <span>Atividades</span>
+          </a>
+          <a class="nav-item {% if request.endpoint == 'professor.observacoes' %}active{% endif %}"
+             href="{{ url_for('professor.observacoes') }}">
+            <span class="nav-icon"><i class="bi bi-chat-square-text-fill"></i></span>
+            <span>Observações</span>
+          </a>
+        </div>
 
-    {% elif current_user.tipo == 'aluno' %}
-      <div class="sidebar-section-label">Principal</div>
-      <div class="nav-item">
-        <a class="nav-link {% if request.endpoint == 'aluno.dashboard' %}active{% endif %}"
-           href="{{ url_for('aluno.dashboard') }}">
-          <i class="bi bi-grid-fill"></i> Dashboard
-        </a>
-      </div>
+      {% elif current_user.tipo == 'aluno' %}
+        <div class="nav-section">
+          <div class="nav-label">Principal</div>
+          <a class="nav-item {% if request.endpoint == 'aluno.dashboard' %}active{% endif %}"
+             href="{{ url_for('aluno.dashboard') }}">
+            <span class="nav-icon"><i class="bi bi-grid-fill"></i></span>
+            <span>Dashboard</span>
+          </a>
+          <a class="nav-item {% if request.endpoint == 'aluno.boletim' %}active{% endif %}"
+             href="{{ url_for('aluno.boletim') }}">
+            <span class="nav-icon"><i class="bi bi-bar-chart-fill"></i></span>
+            <span>Boletim</span>
+          </a>
+          <a class="nav-item {% if request.endpoint == 'aluno.frequencia' %}active{% endif %}"
+             href="{{ url_for('aluno.frequencia') }}">
+            <span class="nav-icon"><i class="bi bi-check-circle-fill"></i></span>
+            <span>Frequência</span>
+          </a>
+        </div>
+        <div class="nav-section">
+          <div class="nav-label">Aprender</div>
+          <a class="nav-item {% if request.endpoint in ('aluno.cursos','aluno.curso_detalhe','aluno.videoaula') %}active{% endif %}"
+             href="{{ url_for('aluno.cursos') }}">
+            <span class="nav-icon"><i class="bi bi-play-btn-fill"></i></span>
+            <span>Meus cursos</span>
+          </a>
+        </div>
 
-      <div class="sidebar-section-label">Desempenho</div>
-      <div class="nav-item">
-        <a class="nav-link {% if request.endpoint == 'aluno.boletim' %}active{% endif %}"
-           href="{{ url_for('aluno.boletim') }}">
-          <i class="bi bi-clipboard2-data-fill"></i> Boletim
-        </a>
-      </div>
-      <div class="nav-item">
-        <a class="nav-link {% if request.endpoint == 'aluno.frequencia' %}active{% endif %}"
-           href="{{ url_for('aluno.frequencia') }}">
-          <i class="bi bi-calendar-check-fill"></i> Frequência
-        </a>
-      </div>
+      {% else %}
+        <div class="nav-section">
+          <div class="nav-label">Acompanhamento</div>
+          <a class="nav-item {% if request.endpoint == 'responsavel.dashboard' %}active{% endif %}"
+             href="{{ url_for('responsavel.dashboard') }}">
+            <span class="nav-icon"><i class="bi bi-grid-fill"></i></span>
+            <span>Dashboard</span>
+          </a>
+        </div>
+      {% endif %}
+    </nav>
 
-      <div class="sidebar-section-label">Aprendizado</div>
-      <div class="nav-item">
-        <a class="nav-link {% if request.endpoint in ('aluno.cursos','aluno.curso_detalhe','aluno.videoaula') %}active{% endif %}"
-           href="{{ url_for('aluno.cursos') }}">
-          <i class="bi bi-play-circle-fill"></i> Meus Cursos
-        </a>
+    <div class="sidebar-footer">
+      <div class="user-card">
+        <div class="avatar">{{ current_user.nome[0].upper() }}</div>
+        <div style="min-width:0">
+          <div class="user-name">{{ current_user.nome }}</div>
+          <div class="user-email">{{ current_user.email or role_label }}</div>
+        </div>
       </div>
-
-    {% else %}
-      <div class="sidebar-section-label">Principal</div>
-      <div class="nav-item">
-        <a class="nav-link {% if request.endpoint == 'responsavel.dashboard' %}active{% endif %}"
-           href="{{ url_for('responsavel.dashboard') }}">
-          <i class="bi bi-grid-fill"></i> Dashboard
-        </a>
-      </div>
-    {% endif %}
-  </div>
-
-  <div class="sidebar-footer">
-    <div class="nav-item">
-      <a class="nav-link" href="{{ url_for('auth.logout') }}">
-        <i class="bi bi-box-arrow-left"></i> Sair
+      <a class="sidebar-logout" href="{{ url_for('auth.logout') }}">
+        <i class="bi bi-box-arrow-left"></i>
+        <span>Sair</span>
       </a>
     </div>
-  </div>
-</nav>
+  </aside>
 
-<!-- Main content -->
-<div class="main-content">
-  <div class="topbar">
-    <h5 class="topbar-title">{% block page_title %}EducaMais{% endblock %}</h5>
-    <div class="topbar-user">
-      <div class="user-avatar">{{ current_user.nome[0].upper() }}</div>
-      <span class="user-name">{{ current_user.nome }}</span>
-    </div>
-  </div>
+  <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
 
-  <div class="page-content">
-    {% with messages = get_flashed_messages(with_categories=true) %}
-      {% if messages %}
-        {% for category, message in messages %}
-          <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
-            {{ message }}
-            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-          </div>
-        {% endfor %}
-      {% endif %}
-    {% endwith %}
-    {% block content %}{% endblock %}
-  </div>
-</div>
+  <main class="main">
+    <header class="topbar">
+      <button type="button" class="icon-btn drawer-toggle" id="drawerToggle" title="Menu">
+        <i class="bi bi-list"></i>
+      </button>
 
+      <div class="topbar-titles">
+        <h1>{% block page_title %}{{ config_sistema.nome }}{% endblock %}</h1>
+        {% block page_subtitle %}{% endblock %}
+      </div>
+
+      <div class="topbar-spacer"></div>
+
+      <div class="topbar-search d-none d-md-flex">
+        <i class="bi bi-search"></i>
+        <input type="text" placeholder="Buscar alunos, turmas, atividades…">
+        <span class="kbd">⌘K</span>
+      </div>
+
+      <button type="button" class="icon-btn" id="themeToggle" title="Alternar tema">
+        <i class="bi bi-moon-stars-fill" id="themeIcon"></i>
+      </button>
+      <button type="button" class="icon-btn" title="Notificações">
+        <i class="bi bi-bell-fill"></i>
+        <span class="dot"></span>
+      </button>
+    </header>
+
+    <section class="page-content">
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          {% for category, message in messages %}
+            <div class="alert alert-{{ category }} d-flex align-items-center" role="alert">
+              <span style="flex:1">{{ message }}</span>
+              <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Fechar">&times;</button>
+            </div>
+          {% endfor %}
+        {% endif %}
+      {% endwith %}
+
+      {% block content %}{% endblock %}
+    </section>
+  </main>
+
+{% else %}
+  {% block guest %}{% endblock %}
 {% endif %}
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+<script>
+  // Drawer mobile
+  (function () {
+    var btn = document.getElementById('drawerToggle');
+    var bd  = document.getElementById('sidebarBackdrop');
+    if (btn) btn.addEventListener('click', function () { document.body.classList.toggle('drawer-open'); });
+    if (bd)  bd.addEventListener('click',  function () { document.body.classList.remove('drawer-open'); });
+  })();
+
+  // Theme toggle
+  (function () {
+    var btn  = document.getElementById('themeToggle');
+    var icon = document.getElementById('themeIcon');
+    if (!btn) return;
+    function refresh() {
+      var t = document.documentElement.getAttribute('data-theme') || 'light';
+      icon.className = (t === 'dark') ? 'bi bi-sun-fill' : 'bi bi-moon-stars-fill';
+    }
+    refresh();
+    btn.addEventListener('click', function () {
+      var cur = document.documentElement.getAttribute('data-theme') || 'light';
+      var nxt = cur === 'dark' ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', nxt);
+      try { localStorage.setItem('arvorecer-theme', nxt); } catch (e) {}
+      refresh();
+    });
+  })();
+</script>
 <script src="{{ url_for('static', filename='js/main.js') }}"></script>
 </body>
 </html>

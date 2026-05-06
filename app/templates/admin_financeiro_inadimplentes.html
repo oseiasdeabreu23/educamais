@@ -1,0 +1,115 @@
+{% extends 'base.html' %}
+{% block page_title %}Inadimplentes{% endblock %}
+{% block page_subtitle %}<div class="topbar-sub">Boletos vencidos e ainda não pagos</div>{% endblock %}
+{% block content %}
+
+<div class="card mb-3">
+  <form method="GET" class="d-flex align-items-end flex-wrap" style="gap:12px">
+    <div>
+      <label class="label">Escopo</label>
+      <select name="escopo" class="input" style="min-width:160px">
+        <option value="todos" {% if escopo == 'todos' %}selected{% endif %}>Todos os atrasados</option>
+        <option value="mes"   {% if escopo == 'mes'   %}selected{% endif %}>Apenas do mês selecionado</option>
+      </select>
+    </div>
+    <div>
+      <label class="label">Mês</label>
+      <select name="mes" class="input">
+        {% for nome in meses %}
+        <option value="{{ loop.index }}" {% if loop.index == mes %}selected{% endif %}>{{ nome }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="label">Ano</label>
+      <input type="number" name="ano" class="input" value="{{ ano }}" min="2020" max="2099" style="width:110px">
+    </div>
+    <button type="submit" class="btn btn-primary">
+      <i class="bi bi-funnel"></i> Aplicar
+    </button>
+  </form>
+</div>
+
+{% if inadimplentes %}
+<div class="row g-3">
+  {% for ina in inadimplentes %}
+  <div class="col-lg-6">
+    <div class="card" style="border-color: rgba(239,68,68,.4)">
+      <div class="card-h">
+        <div>
+          <div class="card-title" style="color:var(--bad)">{{ ina.aluno.nome }}</div>
+          <div class="card-sub">
+            {% if ina.responsavel %}
+              Resp.: {{ ina.responsavel.nome }}
+              {% if ina.responsavel.telefone %} · {{ ina.responsavel.telefone }}{% endif %}
+            {% else %}
+              Pagador: o próprio aluno{% if ina.aluno.telefone %} · {{ ina.aluno.telefone }}{% endif %}
+            {% endif %}
+          </div>
+        </div>
+        <div class="text-end">
+          <div class="dim" style="font-size:11px">Devido</div>
+          <div class="fw-700" style="font-size:18px; color:var(--bad)">
+            R$ {{ '{:,.2f}'.format(ina.total_devido).replace(',', 'X').replace('.', ',').replace('X', '.') }}
+          </div>
+        </div>
+      </div>
+
+      <table class="table" style="margin-top:8px">
+        <thead>
+          <tr>
+            <th>Vencimento</th>
+            <th class="text-end">Valor</th>
+            <th>Status</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for b in ina.boletos %}
+          <tr>
+            <td class="dim">{{ b.vencimento.strftime('%d/%m/%Y') }}</td>
+            <td class="text-end fw-600">
+              R$ {{ '{:,.2f}'.format(b.valor).replace(',', 'X').replace('.', ',').replace('X', '.') }}
+            </td>
+            <td>
+              {% if b.status == 'vencido' %}
+              <span class="badge badge-bad">Vencido</span>
+              {% else %}
+              <span class="badge badge-info">Em aberto</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if b.link_boleto %}
+              <a href="{{ b.link_boleto }}" target="_blank"
+                 class="btn btn-ghost btn-sm" title="Abrir boleto">
+                <i class="bi bi-link-45deg"></i>
+              </a>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+
+      {% set tel = (ina.responsavel.telefone if ina.responsavel else ina.aluno.telefone) %}
+      {% set nome_dest = (ina.responsavel.nome if ina.responsavel else ina.aluno.nome) %}
+      {% if tel %}
+      <a href="https://wa.me/55{{ tel | replace('(','') | replace(')','') | replace(' ','') | replace('-','') }}?text=Olá%20{{ nome_dest | urlencode }}%2C%20referente%20à%20mensalidade%20de%20{{ ina.aluno.nome | urlencode }}%20no%20valor%20de%20R%24%20{{ ina.total_devido }}"
+         target="_blank" class="btn btn-ghost btn-sm w-100 mt-2">
+        <i class="bi bi-whatsapp"></i> Enviar lembrete
+      </a>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card">
+  <div class="empty-state">
+    <i class="bi bi-emoji-smile"></i>
+    <p>Nenhum inadimplente {{ 'no mês ' + mes_nome + '/' + ano|string if escopo == 'mes' else 'no momento' }}.</p>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}

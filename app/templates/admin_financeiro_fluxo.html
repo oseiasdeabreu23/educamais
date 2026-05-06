@@ -1,0 +1,199 @@
+{% extends 'base.html' %}
+{% block page_title %}Fluxo de caixa{% endblock %}
+{% block page_subtitle %}<div class="topbar-sub">{{ mes_nome }}/{{ ano }}</div>{% endblock %}
+{% block content %}
+
+{# ── KPIs ── #}
+<div class="row g-3">
+  <div class="col-sm-4">
+    <div class="kpi kpi-emerald">
+      <div class="kpi-head">
+        <div class="kpi-icon"><i class="bi bi-arrow-down-circle-fill"></i></div>
+      </div>
+      <div class="kpi-label">Entradas</div>
+      <div class="kpi-value">R$ {{ '{:,.2f}'.format(fluxo.entradas).replace(',', 'X').replace('.', ',').replace('X', '.') }}</div>
+    </div>
+  </div>
+  <div class="col-sm-4">
+    <div class="kpi kpi-rose">
+      <div class="kpi-head">
+        <div class="kpi-icon"><i class="bi bi-arrow-up-circle-fill"></i></div>
+      </div>
+      <div class="kpi-label">Saídas</div>
+      <div class="kpi-value">R$ {{ '{:,.2f}'.format(fluxo.saidas).replace(',', 'X').replace('.', ',').replace('X', '.') }}</div>
+    </div>
+  </div>
+  <div class="col-sm-4">
+    <div class="kpi {{ 'kpi-blue' if fluxo.saldo >= 0 else 'kpi-rose' }}">
+      <div class="kpi-head">
+        <div class="kpi-icon"><i class="bi bi-wallet2"></i></div>
+      </div>
+      <div class="kpi-label">Saldo do período</div>
+      <div class="kpi-value">R$ {{ '{:,.2f}'.format(fluxo.saldo).replace(',', 'X').replace('.', ',').replace('X', '.') }}</div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3">
+  {# ── Lançamento manual ── #}
+  <div class="col-lg-4">
+    <div class="card">
+      <div class="card-h">
+        <div>
+          <div class="card-title">Lançar movimentação</div>
+          <div class="card-sub">Manual (entrada ou saída)</div>
+        </div>
+        <span class="qa-icon" style="background:rgba(59,130,246,.15); color:var(--primary)">
+          <i class="bi bi-plus-square-fill"></i>
+        </span>
+      </div>
+      <form method="POST" action="{{ url_for('admin.financeiro_movimentacao_nova') }}"
+            enctype="multipart/form-data" class="stack-md">
+        <div>
+          <label class="label">Tipo</label>
+          <select name="tipo" class="input" required>
+            <option value="saida">Saída (despesa)</option>
+            <option value="entrada">Entrada</option>
+          </select>
+        </div>
+        <div>
+          <label class="label">Categoria</label>
+          <select name="categoria_id" class="input">
+            <option value="">— sem categoria —</option>
+            {% for c in categorias %}
+            <option value="{{ c.id }}">{{ c.nome }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="label">Descrição</label>
+          <input type="text" name="descricao" class="input"
+                 placeholder="Ex.: Salário Maio - Prof. Maria" required maxlength="200">
+        </div>
+        <div>
+          <label class="label">Valor (R$)</label>
+          <input type="text" name="valor" class="input" placeholder="0,00" required>
+        </div>
+        <div>
+          <label class="label">Data</label>
+          <input type="date" name="data" class="input"
+                 value="{{ hoje.isoformat() }}" required>
+        </div>
+        <div>
+          <label class="label">Comprovante (opcional)</label>
+          <input type="file" name="comprovante" class="input"
+                 accept=".pdf,.png,.jpg,.jpeg,.webp">
+          <div class="dim" style="font-size:11px; margin-top:4px">
+            PDF, PNG, JPG ou WEBP. Até 5 MB.
+          </div>
+        </div>
+        <button type="submit" class="btn btn-primary w-100">
+          <i class="bi bi-check2"></i> Lançar
+        </button>
+      </form>
+    </div>
+
+    <div class="card mt-3">
+      <form method="GET" class="stack-md">
+        <div class="card-title">Período</div>
+        <div>
+          <label class="label">Mês</label>
+          <select name="mes" class="input">
+            {% for nome in meses %}
+            <option value="{{ loop.index }}" {% if loop.index == mes %}selected{% endif %}>{{ nome }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="label">Ano</label>
+          <input type="number" name="ano" class="input" value="{{ ano }}" min="2020" max="2099">
+        </div>
+        <button type="submit" class="btn btn-ghost w-100">
+          <i class="bi bi-funnel"></i> Filtrar
+        </button>
+      </form>
+    </div>
+  </div>
+
+  {# ── Tabela ── #}
+  <div class="col-lg-8">
+    <div class="card no-pad">
+      <div class="card-h" style="padding:20px 20px 16px; margin:0">
+        <div>
+          <div class="card-title">Movimentações</div>
+          <div class="card-sub">{{ fluxo.movimentacoes | length }} no período</div>
+        </div>
+      </div>
+      {% if fluxo.movimentacoes %}
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Data</th>
+            <th>Descrição</th>
+            <th>Categoria</th>
+            <th class="text-end">Valor</th>
+            <th>Comprovante</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for m in fluxo.movimentacoes %}
+          <tr>
+            <td class="dim">{{ m.data.strftime('%d/%m/%Y') }}</td>
+            <td>
+              <div class="fw-600">{{ m.descricao }}</div>
+              {% if m.boleto %}
+              <div class="dim" style="font-size:11px">
+                <i class="bi bi-receipt"></i> Boleto #{{ m.boleto.id }}
+              </div>
+              {% endif %}
+            </td>
+            <td class="dim">
+              {% if m.categoria %}
+              <span class="badge" style="{% if m.categoria.cor %}background:{{ m.categoria.cor }}22; color:{{ m.categoria.cor }}{% endif %}">
+                {{ m.categoria.nome }}
+              </span>
+              {% else %}—{% endif %}
+            </td>
+            <td class="text-end fw-700"
+                style="color: {{ 'var(--ok)' if m.tipo == 'entrada' else 'var(--bad)' }}">
+              {{ '+' if m.tipo == 'entrada' else '−' }} R$ {{ '{:,.2f}'.format(m.valor).replace(',', 'X').replace('.', ',').replace('X', '.') }}
+            </td>
+            <td>
+              {% if m.comprovante_path %}
+              <a href="{{ upload_url(m.comprovante_path) }}"
+                 target="_blank" class="btn btn-ghost btn-sm" title="Ver comprovante">
+                <i class="bi bi-paperclip"></i>
+              </a>
+              {% else %}
+              <span class="dim">—</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if not m.boleto_id %}
+              <form method="POST"
+                    action="{{ url_for('admin.financeiro_movimentacao_excluir', id=m.id) }}"
+                    onsubmit="return confirm('Excluir movimentação?')"
+                    style="display:inline">
+                <button type="submit" class="btn btn-ghost btn-sm"
+                        title="Excluir" style="color:var(--bad)">
+                  <i class="bi bi-trash"></i>
+                </button>
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="empty-state">
+        <i class="bi bi-arrow-down-up"></i>
+        <p>Nenhuma movimentação no período.</p>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+{% endblock %}

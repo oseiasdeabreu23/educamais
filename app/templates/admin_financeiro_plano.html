@@ -1,0 +1,225 @@
+{% extends 'base.html' %}
+{% block page_title %}Plano de pagamento{% endblock %}
+{% block page_subtitle %}<div class="topbar-sub">{{ aluno.nome }}</div>{% endblock %}
+{% block content %}
+
+<nav style="margin-bottom:16px">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="{{ url_for('admin.alunos') }}">Alunos</a></li>
+    <li class="breadcrumb-item"><a href="{{ url_for('admin.financeiro') }}">Financeiro</a></li>
+    <li class="breadcrumb-item active">Plano · {{ aluno.nome }}</li>
+  </ol>
+</nav>
+
+<div class="row g-3">
+
+  {# ── Plano ativo ── #}
+  <div class="col-lg-7">
+    {% if plano_ativo %}
+    <div class="card">
+      <div class="card-h">
+        <div>
+          <div class="card-title">Plano ativo</div>
+          <div class="card-sub">
+            {{ plano_ativo.n_parcelas }} parcelas de
+            R$ {{ '%.2f' % plano_ativo.valor_parcela }} ·
+            vencimento dia {{ plano_ativo.dia_vencimento }}
+          </div>
+        </div>
+        <span class="badge badge-ok">Ativo</span>
+      </div>
+
+      <div class="row g-2" style="margin-bottom:12px">
+        <div class="col-6 col-md-3">
+          <div class="dim" style="font-size:11px">Total</div>
+          <div class="fw-600">R$ {{ '%.2f' % (plano_ativo.valor_parcela * plano_ativo.n_parcelas) }}</div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="dim" style="font-size:11px">Início</div>
+          <div class="fw-600">{{ plano_ativo.data_primeira.strftime('%d/%m/%Y') }}</div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="dim" style="font-size:11px">Criado em</div>
+          <div class="fw-600">{{ plano_ativo.criado_em.strftime('%d/%m/%Y') if plano_ativo.criado_em else '—' }}</div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="dim" style="font-size:11px">Pagas / total</div>
+          {% set pagas = plano_ativo.mensalidades | selectattr('boletos') | list | length %}
+          <div class="fw-600">{{ pagas }} / {{ plano_ativo.n_parcelas }}</div>
+        </div>
+      </div>
+
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Parcela</th>
+            <th>Período</th>
+            <th>Vencimento</th>
+            <th>Valor</th>
+            <th>Status</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for m in plano_ativo.mensalidades | sort(attribute='vencimento') %}
+          <tr>
+            <td>{{ loop.index }}/{{ plano_ativo.n_parcelas }}</td>
+            <td>{{ '%02d/%d' % (m.mes, m.ano) }}</td>
+            <td>{{ m.vencimento.strftime('%d/%m/%Y') }}</td>
+            <td>R$ {{ '%.2f' % m.valor }}</td>
+            <td>
+              {% if m.cancelada_em %}
+                <span class="badge badge-bad">Cancelada</span>
+              {% elif m.boletos %}
+                {% set b = m.boletos[0] %}
+                {% set cls = {'pago':'badge-ok','aberto':'badge-info','vencido':'badge-warn','cancelado':'badge-bad'} %}
+                <span class="badge {{ cls.get(b.status,'') }}">{{ b.status|capitalize }}</span>
+              {% else %}
+                <span class="badge">A emitir</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if not m.cancelada_em and not m.boletos %}
+              <form method="POST" action="{{ url_for('admin.financeiro_boleto_emitir', mensalidade_id=m.id) }}" style="display:inline">
+                <button class="btn btn-ghost btn-sm" title="Emitir boleto">
+                  <i class="bi bi-receipt"></i>
+                </button>
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+
+      <form method="POST" action="{{ url_for('admin.financeiro_plano_cancelar', aluno_id=aluno.id) }}"
+            onsubmit="return confirm('Cancelar plano? Boletos abertos serão cancelados no Cora.')"
+            style="margin-top:16px">
+        <input class="input" name="motivo" placeholder="Motivo do cancelamento (opcional)" style="margin-bottom:8px">
+        <button class="btn" style="background:var(--bad); color:white">
+          <i class="bi bi-x-circle"></i> Cancelar plano
+        </button>
+      </form>
+    </div>
+    {% else %}
+    <div class="card">
+      <div class="card-h">
+        <div>
+          <div class="card-title">Sem plano ativo</div>
+          <div class="card-sub">Crie um plano para gerar as mensalidades automaticamente</div>
+        </div>
+        <span class="qa-icon"><i class="bi bi-cash-coin"></i></span>
+      </div>
+
+      {% if not aluno.responsaveis and aluno.idade is not none and aluno.idade < 18 %}
+      <div class="alert alert-warning">
+        <i class="bi bi-exclamation-triangle"></i>
+        Aluno menor de idade ({{ aluno.idade }} anos) sem responsável vinculado.
+        Vincule um responsável antes de criar o plano.
+      </div>
+      {% else %}
+      {% if not aluno.responsaveis %}
+      <div class="alert alert-info" style="font-size:13px">
+        <i class="bi bi-info-circle"></i>
+        Aluno maior de idade ({{ aluno.idade }} anos) — o próprio aluno será o pagador no boleto.
+      </div>
+      {% endif %}
+      <form method="POST" action="{{ url_for('admin.financeiro_plano_criar', aluno_id=aluno.id) }}" class="stack-md">
+        <div class="row g-2">
+          <div class="col-md-6">
+            <label class="label">Número de parcelas</label>
+            <select class="select" name="n_parcelas">
+              {% for n in [3, 6, 9, 12, 18, 24, 36] %}
+              <option value="{{ n }}" {% if n == 12 %}selected{% endif %}>{{ n }}x</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-6">
+            <label class="label">Valor da parcela (R$)</label>
+            <input class="input" name="valor_parcela" type="text" placeholder="0,00"
+                   value="{{ aluno.mensalidade_padrao if aluno.mensalidade_padrao is not none else '' }}" required>
+          </div>
+          <div class="col-md-4">
+            <label class="label">Dia do vencimento</label>
+            <input class="input" name="dia_vencimento" type="number" min="1" max="28" value="10">
+          </div>
+          <div class="col-md-4">
+            <label class="label">Mês de início</label>
+            <select class="select" name="mes_inicio">
+              <option value="">Automático</option>
+              {% for i in range(1, 13) %}
+              <option value="{{ i }}">{{ meses[i-1] }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-4">
+            <label class="label">Ano de início</label>
+            <select class="select" name="ano_inicio">
+              <option value="">Automático</option>
+              {% set ano_atual = aluno.data_nascimento.year if false else 2026 %}
+              {% for y in [2026, 2027, 2028] %}
+              <option value="{{ y }}">{{ y }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-12">
+            <label class="label">Observação (opcional)</label>
+            <textarea class="input" name="observacao" rows="2" placeholder="Ex: bolsa parcial, desconto irmão..."></textarea>
+          </div>
+        </div>
+        <div class="dim" style="font-size:12px; margin-top:8px">
+          <i class="bi bi-info-circle"></i>
+          O boleto da 1ª parcela é emitido automaticamente se vencer em até 30 dias.
+          Vencimento que cair em sábado/domingo é empurrado pra próxima segunda.
+        </div>
+        <button type="submit" class="btn btn-primary w-100" style="margin-top:8px">
+          <i class="bi bi-check-lg"></i> Criar plano
+        </button>
+      </form>
+      {% endif %}
+    </div>
+    {% endif %}
+  </div>
+
+  {# ── Histórico ── #}
+  <div class="col-lg-5">
+    <div class="card">
+      <div class="card-h">
+        <div>
+          <div class="card-title">Histórico</div>
+          <div class="card-sub">Planos anteriores</div>
+        </div>
+      </div>
+      {% if historico %}
+      <ul class="list-group">
+        {% for p in historico %}
+        <li class="list-group-item d-flex justify-content-between align-items-start">
+          <div>
+            <div class="fw-600">
+              {{ p.n_parcelas }}x R$ {{ '%.2f' % p.valor_parcela }}
+            </div>
+            <div class="dim" style="font-size:11.5px">
+              {{ p.criado_em.strftime('%d/%m/%Y') if p.criado_em else '—' }}
+              · início {{ p.data_primeira.strftime('%m/%Y') }}
+            </div>
+            {% if p.observacao %}
+            <div class="dim" style="font-size:11px; margin-top:4px">{{ p.observacao }}</div>
+            {% endif %}
+          </div>
+          {% set st_cls = {'ativo':'badge-ok','cancelado':'badge-bad','concluido':'badge-primary'} %}
+          <span class="badge {{ st_cls.get(p.status,'') }}">{{ p.status|capitalize }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <div class="empty-state">
+        <i class="bi bi-clock-history"></i>
+        <p>Nenhum plano cadastrado.</p>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+</div>
+
+{% endblock %}

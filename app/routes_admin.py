@@ -1,13 +1,22 @@
 import os
+import uuid
 import bcrypt
+from decimal import Decimal, InvalidOperation
 from flask import (Blueprint, render_template, request, redirect,
-                   url_for, flash, current_app)
-from flask_login import login_required, current_user
+                   url_for, flash, current_app, send_file, abort, jsonify)
+from flask_login import login_required, current_user, logout_user
+from werkzeug.utils import secure_filename
 from app import db
 from app.models import (User, Aluno, Responsavel, Professor, Turma, Disciplina,
-                        Curso, Modulo, Videoaula, MatriculaCurso, ConfigSistema)
-from app.services import media_turma, frequencia_geral, alunos_baixo_desempenho
-from datetime import date
+                        Curso, Modulo, Videoaula, MatriculaCurso, ConfigSistema,
+                        Mensalidade, Boleto, CategoriaDespesa, Movimentacao,
+                        PlanoPagamento)
+from app.services import (media_turma, frequencia_geral, alunos_baixo_desempenho,
+                          cpf_valido, cep_valido, uf_valida, so_digitos, UFS_BR)
+from app import services_backup, services_financeiro, storage
+from app.services_cora import get_cora_client, CoraError, CoraMockClient
+from datetime import date, datetime
+from sqlalchemy.exc import IntegrityError
 
 LOGO_EXTENSOES = {'png', 'jpg', 'jpeg', 'webp', 'svg'}
 
@@ -49,23 +58,134 @@ def dashboard():
 
 # ── Alunos ─────────────────────────────────────────────────────────────────────
 
+SEXOS_CHOICES = ('Masculino', 'Feminino', 'Outro', 'Prefiro não informar')
+COR_RACA_CHOICES = ('Branca', 'Preta', 'Parda', 'Amarela', 'Indígena', 'Não declarada')
+STATUS_ALUNO_CHOICES = ('ativo', 'evadido', 'formado')
+
+
+def _aplicar_dados_aluno(aluno, form, is_novo=False):
+    """Lê o form, valida e popula o objeto Aluno. Retorna (ok, mensagem_erro)."""
+    nome = (form.get('nome') or '').strip()
+    if not nome:
+        return False, 'Nome é obrigatório.'
+
+    try:
+        data_nasc = date.fromisoformat(form.get('data_nascimento') or '')
+    except ValueError:
+        return False, 'Data de nascimento inválida.'
+
+    cpf_raw = form.get('cpf') or ''
+    cpf = so_digitos(cpf_raw) or None
+    if cpf and not cpf_valido(cpf):
+        return False, 'CPF inválido.'
+
+    sexo = form.get('sexo') or None
+    if sexo and sexo not in SEXOS_CHOICES:
+        return False, 'Sexo inválido.'
+
+    cor_raca = form.get('cor_raca') or None
+    if cor_raca and cor_raca not in COR_RACA_CHOICES:
+        return False, 'Cor/Raça inválida.'
+
+    status = form.get('status') or 'ativo'
+    if status not in STATUS_ALUNO_CHOICES:
+        return False, 'Status inválido.'
+
+    cep = so_digitos(form.get('cep')) or None
+    if cep and not cep_valido(cep):
+        return False, 'CEP inválido.'
+
+    uf = (form.get('uf') or '').strip().upper() or None
+    if uf and not uf_valida(uf):
+        return False, 'UF inválida.'
+
+    turma_id = form.get('turma_id') or None
+    mensalidade = form.get('mensalidade_padrao')
+    mensalidade = _parse_decimal(mensalidade) if mensalidade else None
+
+    autoriza = bool(form.get('autoriza_imagem'))
+    data_consent_str = form.get('data_consentimento_imagem') or ''
+    data_consent = None
+    if autoriza:
+        if data_consent_str:
+            try:
+                data_consent = date.fromisoformat(data_consent_str)
+            except ValueError:
+                return False, 'Data de consentimento inválida.'
+        else:
+            data_consent = date.today()
+
+    aluno.nome = nome
+    aluno.data_nascimento = data_nasc
+    aluno.cpf = cpf
+    aluno.sexo = sexo
+    aluno.cor_raca = cor_raca
+    aluno.telefone = (form.get('telefone') or '').strip() or None
+    aluno.cep = cep
+    aluno.logradouro = (form.get('logradouro') or '').strip() or None
+    aluno.numero = (form.get('numero') or '').strip() or None
+    aluno.complemento = (form.get('complemento') or '').strip() or None
+    aluno.bairro = (form.get('bairro') or '').strip() or None
+    aluno.cidade = (form.get('cidade') or '').strip() or None
+    aluno.uf = uf
+    aluno.pcd = bool(form.get('pcd'))
+    aluno.pcd_descricao = (form.get('pcd_descricao') or '').strip() or None if aluno.pcd else None
+    aluno.status = status
+    aluno.autoriza_imagem = autoriza
+    aluno.data_consentimento_imagem = data_consent if autoriza else None
+    aluno.turma_id = turma_id or None
+    aluno.mensalidade_padrao = mensalidade
+    return True, None
+
+
+def _sincronizar_matriculas(aluno, curso_ids):
+    """Adiciona matrículas novas e remove as desmarcadas."""
+    novos_ids = {int(c) for c in curso_ids if c}
+    atuais = {m.curso_id: m for m in aluno.matriculas}
+    # Remove os que saíram
+    for cid, matr in atuais.items():
+        if cid not in novos_ids:
+            db.session.delete(matr)
+    # Adiciona os novos
+    for cid in novos_ids:
+        if cid not in atuais and Curso.query.get(cid):
+            db.session.add(MatriculaCurso(aluno_id=aluno.id, curso_id=cid,
+                                          data_matricula=date.today()))
+
+
 @admin_bp.route('/alunos', methods=['GET', 'POST'])
 @login_required
 @admin_required
 def alunos():
     if request.method == 'POST':
-        nome = request.form.get('nome')
-        data_nascimento = date.fromisoformat(request.form.get('data_nascimento'))
-        turma_id = request.form.get('turma_id')
-        aluno = Aluno(nome=nome, data_nascimento=data_nascimento, turma_id=turma_id or None)
-        db.session.add(aluno)
-        db.session.commit()
-        flash('Aluno cadastrado.', 'success')
+        aluno = Aluno()
+        ok, erro = _aplicar_dados_aluno(aluno, request.form, is_novo=True)
+        if not ok:
+            flash(erro, 'danger')
+            return redirect(url_for('admin.alunos'))
+        try:
+            db.session.add(aluno)
+            db.session.flush()
+            _sincronizar_matriculas(aluno, request.form.getlist('curso_ids'))
+            db.session.commit()
+            flash('Aluno cadastrado.', 'success')
+        except IntegrityError:
+            db.session.rollback()
+            flash('CPF já cadastrado para outro aluno.', 'danger')
         return redirect(url_for('admin.alunos'))
 
-    turmas = Turma.query.all()
-    alunos = Aluno.query.order_by(Aluno.nome).all()
-    return render_template('admin_alunos.html', alunos=alunos, turmas=turmas)
+    filtro_status = request.args.get('status', '')
+    turmas = Turma.query.order_by(Turma.nome).all()
+    cursos = Curso.query.order_by(Curso.titulo).all()
+    q = Aluno.query
+    if filtro_status in STATUS_ALUNO_CHOICES:
+        q = q.filter_by(status=filtro_status)
+    alunos = q.order_by(Aluno.nome).all()
+    return render_template('admin_alunos.html',
+                           alunos=alunos, turmas=turmas, cursos=cursos,
+                           sexos=SEXOS_CHOICES, cor_racas=COR_RACA_CHOICES,
+                           status_choices=STATUS_ALUNO_CHOICES, ufs=UFS_BR,
+                           filtro_status=filtro_status)
 
 
 @admin_bp.route('/alunos/editar/<int:id>', methods=['POST'])
@@ -73,12 +193,27 @@ def alunos():
 @admin_required
 def editar_aluno(id):
     aluno = Aluno.query.get_or_404(id)
-    aluno.nome = request.form.get('nome')
-    aluno.data_nascimento = date.fromisoformat(request.form.get('data_nascimento'))
-    turma_id = request.form.get('turma_id')
-    aluno.turma_id = turma_id or None
-    db.session.commit()
-    flash('Aluno atualizado.', 'success')
+    status_anterior = aluno.status
+    ok, erro = _aplicar_dados_aluno(aluno, request.form)
+    if not ok:
+        flash(erro, 'danger')
+        return redirect(url_for('admin.alunos'))
+    try:
+        _sincronizar_matriculas(aluno, request.form.getlist('curso_ids'))
+        db.session.commit()
+        flash('Aluno atualizado.', 'success')
+        # Auto-cancelar plano quando aluno vira evadido
+        if status_anterior == 'ativo' and aluno.status == 'evadido':
+            res = services_financeiro.cancelar_plano_aluno(
+                aluno, motivo=f'Aluno marcado como {aluno.status}.')
+            if res['plano_cancelado']:
+                msg = (f"Plano cancelado automaticamente: "
+                       f"{res['mensalidades_canceladas']} mensalidade(s), "
+                       f"{res['boletos_cancelados']} boleto(s).")
+                flash(msg, 'info')
+    except IntegrityError:
+        db.session.rollback()
+        flash('CPF já cadastrado para outro aluno.', 'danger')
     return redirect(url_for('admin.alunos'))
 
 
@@ -145,9 +280,14 @@ def professores():
     if request.method == 'POST':
         nome = request.form.get('nome')
         turma_id = request.form.get('turma_id') or None
+        user_id = request.form.get('user_id', type=int) or None
         disciplina_ids = request.form.getlist('disciplina_ids')
 
-        professor = Professor(nome=nome, turma_id=turma_id)
+        if user_id and Professor.query.filter_by(user_id=user_id).first():
+            flash('Esse usuário já está vinculado a outro professor.', 'danger')
+            return redirect(url_for('admin.professores'))
+
+        professor = Professor(nome=nome, turma_id=turma_id, user_id=user_id)
         db.session.add(professor)
         db.session.flush()
 
@@ -163,8 +303,12 @@ def professores():
     professores = Professor.query.order_by(Professor.nome).all()
     disciplinas = Disciplina.query.order_by(Disciplina.nome).all()
     turmas = Turma.query.order_by(Turma.nome).all()
+    users_disponiveis = User.query.filter_by(tipo='professor').filter(
+        ~User.id.in_(db.session.query(Professor.user_id).filter(Professor.user_id.isnot(None)))
+    ).order_by(User.nome).all()
     return render_template('admin_professores.html',
-                           professores=professores, disciplinas=disciplinas, turmas=turmas)
+                           professores=professores, disciplinas=disciplinas, turmas=turmas,
+                           users_disponiveis=users_disponiveis)
 
 
 @admin_bp.route('/professores/editar/<int:id>', methods=['POST'])
@@ -174,6 +318,15 @@ def editar_professor(id):
     professor = Professor.query.get_or_404(id)
     professor.nome = request.form.get('nome')
     professor.turma_id = request.form.get('turma_id') or None
+
+    novo_user_id = request.form.get('user_id', type=int) or None
+    if novo_user_id != professor.user_id:
+        if novo_user_id and Professor.query.filter(
+                Professor.user_id == novo_user_id, Professor.id != professor.id).first():
+            flash('Esse usuário já está vinculado a outro professor.', 'danger')
+            return redirect(url_for('admin.professores'))
+        professor.user_id = novo_user_id
+
     disciplina_ids = request.form.getlist('disciplina_ids')
 
     professor.disciplinas.clear()
@@ -261,6 +414,7 @@ def usuarios():
             senha = request.form.get('senha')
             tipo = request.form.get('tipo')
             aluno_id_form = request.form.get('aluno_id', type=int)
+            professor_id_form = request.form.get('professor_id', type=int)
 
             if tipo not in ('professor', 'responsavel', 'aluno'):
                 flash('Tipo de usuário inválido.', 'danger')
@@ -279,6 +433,14 @@ def usuarios():
                 aluno = Aluno.query.get(aluno_id_form)
                 if aluno and aluno.user_id is None:
                     aluno.user_id = user.id
+
+            if tipo == 'professor':
+                if professor_id_form:
+                    prof = Professor.query.get(professor_id_form)
+                    if prof and prof.user_id is None:
+                        prof.user_id = user.id
+                else:
+                    db.session.add(Professor(nome=nome, user_id=user.id))
 
             db.session.commit()
             flash(f'Acesso criado para {nome}.', 'success')
@@ -313,12 +475,14 @@ def usuarios():
     professores = Professor.query.order_by(Professor.nome).all()
     responsaveis = Responsavel.query.order_by(Responsavel.nome).all()
     alunos_sem_acesso = Aluno.query.filter_by(user_id=None).order_by(Aluno.nome).all()
+    professores_sem_acesso = Professor.query.filter_by(user_id=None).order_by(Professor.nome).all()
     emails_com_acesso = {u.email for u in usuarios}
     return render_template('admin_usuarios.html',
                            usuarios=usuarios,
                            professores=professores,
                            responsaveis=responsaveis,
                            alunos_sem_acesso=alunos_sem_acesso,
+                           professores_sem_acesso=professores_sem_acesso,
                            emails_com_acesso=emails_com_acesso)
 
 
@@ -483,27 +647,19 @@ def configuracoes():
 
                 ext = logo_file.filename.rsplit('.', 1)[1].lower()
 
-                # Remove logo anterior
-                if cfg.logo_path:
-                    caminho_antigo = os.path.join(
-                        current_app.config['UPLOAD_FOLDER'], cfg.logo_path)
-                    if os.path.exists(caminho_antigo):
-                        os.remove(caminho_antigo)
+                # Remove logo anterior (se existir e tiver extensão diferente)
+                if cfg.logo_path and cfg.logo_path != f'logo.{ext}':
+                    storage.delete_upload(cfg.logo_path)
 
                 nome_arquivo = f'logo.{ext}'
-                logo_file.save(os.path.join(
-                    current_app.config['UPLOAD_FOLDER'], nome_arquivo))
-                cfg.logo_path = nome_arquivo
+                cfg.logo_path = storage.save_upload(logo_file, nome_arquivo)
 
             db.session.commit()
             flash('Configurações salvas com sucesso.', 'success')
 
         elif action == 'remover_logo':
             if cfg.logo_path:
-                caminho = os.path.join(
-                    current_app.config['UPLOAD_FOLDER'], cfg.logo_path)
-                if os.path.exists(caminho):
-                    os.remove(caminho)
+                storage.delete_upload(cfg.logo_path)
                 cfg.logo_path = None
                 db.session.commit()
             flash('Logo removida.', 'success')
@@ -529,3 +685,507 @@ def vincular_aluno_turma():
     else:
         flash('Aluno não encontrado.', 'danger')
     return redirect(url_for('admin.alunos'))
+
+
+# ── Backup e restauração ───────────────────────────────────────────────────────
+
+@admin_bp.route('/backup')
+@login_required
+@admin_required
+def backup():
+    backups = services_backup.listar_backups(current_app)
+    return render_template('admin_backup.html', backups=backups)
+
+
+@admin_bp.route('/backup/criar', methods=['POST'])
+@login_required
+@admin_required
+def backup_criar():
+    try:
+        caminho = services_backup.criar_backup(current_app)
+        flash(f'Backup criado: {caminho.name}', 'success')
+    except Exception as e:
+        flash(f'Erro ao criar backup: {e}', 'danger')
+    return redirect(url_for('admin.backup'))
+
+
+@admin_bp.route('/backup/baixar/<nome>')
+@login_required
+@admin_required
+def backup_baixar(nome):
+    try:
+        caminho = services_backup.caminho_backup(current_app, nome)
+    except ValueError:
+        flash('Nome de arquivo inválido.', 'danger')
+        return redirect(url_for('admin.backup'))
+    if not caminho.exists():
+        flash('Backup não encontrado.', 'danger')
+        return redirect(url_for('admin.backup'))
+    return send_file(caminho, as_attachment=True, download_name=nome)
+
+
+@admin_bp.route('/backup/excluir/<nome>', methods=['POST'])
+@login_required
+@admin_required
+def backup_excluir(nome):
+    try:
+        if services_backup.excluir_backup(current_app, nome):
+            flash(f'Backup {nome} removido.', 'success')
+        else:
+            flash('Backup não encontrado.', 'warning')
+    except ValueError:
+        flash('Nome de arquivo inválido.', 'danger')
+    return redirect(url_for('admin.backup'))
+
+
+@admin_bp.route('/backup/restaurar', methods=['POST'])
+@login_required
+@admin_required
+def backup_restaurar():
+    arquivo = request.files.get('backup_file')
+    confirmacao = request.form.get('confirmacao', '').strip().upper()
+
+    if not arquivo or not arquivo.filename:
+        flash('Selecione um arquivo de backup (.zip).', 'danger')
+        return redirect(url_for('admin.backup'))
+    if not arquivo.filename.lower().endswith('.zip'):
+        flash('O arquivo precisa ser um .zip de backup.', 'danger')
+        return redirect(url_for('admin.backup'))
+    if confirmacao != 'RESTAURAR':
+        flash('Digite RESTAURAR no campo de confirmação para prosseguir.', 'warning')
+        return redirect(url_for('admin.backup'))
+
+    resultado = services_backup.restaurar_backup(current_app, arquivo)
+    if not resultado['ok']:
+        flash(f'Falha ao restaurar: {resultado["mensagem"]}', 'danger')
+        return redirect(url_for('admin.backup'))
+
+    # Sessão atual ficou inválida (IDs podem ter trocado) — força logout
+    logout_user()
+    flash(
+        f'Backup restaurado. Pre-backup do estado anterior: {resultado["pre_backup"]}. '
+        'Faça login novamente.',
+        'success',
+    )
+    return redirect(url_for('auth.login'))
+
+
+# ── Financeiro ─────────────────────────────────────────────────────────────────
+
+COMPROVANTE_EXTENSOES = {'pdf', 'png', 'jpg', 'jpeg', 'webp'}
+COMPROVANTE_MAX_BYTES = 5 * 1024 * 1024  # 5 MB
+
+MESES_PT = [
+    'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+    'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro',
+]
+
+
+def _comprovante_valido(filename):
+    return ('.' in filename and
+            filename.rsplit('.', 1)[1].lower() in COMPROVANTE_EXTENSOES)
+
+
+def _parse_decimal(valor_str, default=None):
+    if not valor_str:
+        return default
+    try:
+        return Decimal(str(valor_str).replace(',', '.'))
+    except (InvalidOperation, ValueError):
+        return default
+
+
+def _periodo_atual():
+    hoje = date.today()
+    return hoje.month, hoje.year
+
+
+@admin_bp.route('/financeiro')
+@login_required
+@admin_required
+def financeiro():
+    services_financeiro.seed_categorias_padrao()
+    mes, ano = _periodo_atual()
+    kpis = services_financeiro.kpis_mes(mes, ano)
+    # Últimas 8 movimentações pra contexto
+    ult = (Movimentacao.query
+           .order_by(Movimentacao.data.desc(), Movimentacao.id.desc())
+           .limit(8).all())
+    return render_template(
+        'admin_financeiro.html',
+        kpis=kpis, mes=mes, ano=ano, mes_nome=MESES_PT[mes - 1],
+        ultimas_movs=ult,
+    )
+
+
+# Mensalidades ----------------------------------------------------------------
+
+@admin_bp.route('/financeiro/mensalidades')
+@login_required
+@admin_required
+def financeiro_mensalidades():
+    mes = int(request.args.get('mes', date.today().month))
+    ano = int(request.args.get('ano', date.today().year))
+    mensalidades = (Mensalidade.query
+                    .filter_by(mes=mes, ano=ano)
+                    .join(Aluno).order_by(Aluno.nome).all())
+    return render_template(
+        'admin_financeiro_mensalidades.html',
+        mensalidades=mensalidades, mes=mes, ano=ano,
+        mes_nome=MESES_PT[mes - 1], meses=MESES_PT,
+    )
+
+
+@admin_bp.route('/financeiro/mensalidades/lote', methods=['POST'])
+@login_required
+@admin_required
+def financeiro_mensalidades_lote():
+    mes = int(request.form.get('mes', date.today().month))
+    ano = int(request.form.get('ano', date.today().year))
+    valor_default = _parse_decimal(request.form.get('valor_default'))
+    res = services_financeiro.gerar_mensalidades_lote(mes, ano, valor_default=valor_default)
+    msg = f"Lote {mes:02d}/{ano}: {res['criadas']} criadas, {res['puladas']} já existiam."
+    if res['alunos_sem_valor']:
+        msg += f" Sem valor: {len(res['alunos_sem_valor'])}."
+    if res['alunos_sem_responsavel']:
+        msg += f" Sem responsável: {len(res['alunos_sem_responsavel'])}."
+    flash(msg, 'success' if res['criadas'] else 'warning')
+    return redirect(url_for('admin.financeiro_mensalidades', mes=mes, ano=ano))
+
+
+@admin_bp.route('/financeiro/mensalidades/<int:id>/excluir', methods=['POST'])
+@login_required
+@admin_required
+def financeiro_mensalidade_excluir(id):
+    m = Mensalidade.query.get_or_404(id)
+    mes, ano = m.mes, m.ano
+    db.session.delete(m)  # cascade remove boletos
+    db.session.commit()
+    flash('Mensalidade removida.', 'success')
+    return redirect(url_for('admin.financeiro_mensalidades', mes=mes, ano=ano))
+
+
+# Plano de pagamento ----------------------------------------------------------
+
+@admin_bp.route('/financeiro/planos/<int:aluno_id>')
+@login_required
+@admin_required
+def financeiro_plano(aluno_id):
+    aluno = Aluno.query.get_or_404(aluno_id)
+    plano_ativo = services_financeiro.plano_ativo_do_aluno(aluno)
+    historico = (PlanoPagamento.query
+                 .filter_by(aluno_id=aluno.id)
+                 .order_by(PlanoPagamento.criado_em.desc()).all())
+    return render_template(
+        'admin_financeiro_plano.html',
+        aluno=aluno, plano_ativo=plano_ativo, historico=historico,
+        meses=MESES_PT,
+    )
+
+
+@admin_bp.route('/financeiro/planos/<int:aluno_id>/criar', methods=['POST'])
+@login_required
+@admin_required
+def financeiro_plano_criar(aluno_id):
+    aluno = Aluno.query.get_or_404(aluno_id)
+    try:
+        n = int(request.form.get('n_parcelas', 12))
+        valor = _parse_decimal(request.form.get('valor_parcela'))
+        if valor is None:
+            raise ValueError('Informe o valor da parcela.')
+        dia = int(request.form.get('dia_vencimento', 10))
+        mes_ini = request.form.get('mes_inicio')
+        ano_ini = request.form.get('ano_inicio')
+        mes_ini = int(mes_ini) if mes_ini else None
+        ano_ini = int(ano_ini) if ano_ini else None
+        observacao = (request.form.get('observacao') or '').strip() or None
+
+        res = services_financeiro.criar_plano_pagamento(
+            aluno=aluno, n_parcelas=n, valor_parcela=valor,
+            dia_vencimento=dia, mes_inicio=mes_ini, ano_inicio=ano_ini,
+            observacao=observacao,
+        )
+        msg = (f"Plano criado: {res['mensalidades_criadas']} mensalidade(s).")
+        if res['boleto_emitido']:
+            msg += f" Boleto da 1ª parcela emitido (#{res['boleto_emitido'].id})."
+        if res['mensalidades_puladas']:
+            msg += f" {len(res['mensalidades_puladas'])} já existiam e foram puladas."
+        flash(msg, 'success')
+    except ValueError as e:
+        flash(str(e), 'danger')
+    except CoraError as e:
+        flash(f'Erro do Cora: {e}', 'warning')
+    return redirect(url_for('admin.financeiro_plano', aluno_id=aluno.id))
+
+
+@admin_bp.route('/financeiro/planos/<int:aluno_id>/cancelar', methods=['POST'])
+@login_required
+@admin_required
+def financeiro_plano_cancelar(aluno_id):
+    aluno = Aluno.query.get_or_404(aluno_id)
+    motivo = (request.form.get('motivo') or '').strip() or None
+    res = services_financeiro.cancelar_plano_aluno(aluno, motivo=motivo)
+    if not res['plano_cancelado']:
+        flash('Aluno não tinha plano ativo.', 'warning')
+    else:
+        msg = (f"Plano cancelado. {res['mensalidades_canceladas']} mensalidade(s) "
+               f"e {res['boletos_cancelados']} boleto(s) cancelados.")
+        if res['erros_cora']:
+            msg += f" {res['erros_cora']} erro(s) ao cancelar no Cora."
+        flash(msg, 'success' if not res['erros_cora'] else 'warning')
+    return redirect(url_for('admin.financeiro_plano', aluno_id=aluno.id))
+
+
+# Boletos ---------------------------------------------------------------------
+
+@admin_bp.route('/financeiro/boletos')
+@login_required
+@admin_required
+def financeiro_boletos():
+    status = request.args.get('status', '')
+    q = Boleto.query.order_by(Boleto.vencimento.desc(), Boleto.id.desc())
+    if status:
+        q = q.filter(Boleto.status == status)
+    boletos = q.limit(200).all()
+    return render_template('admin_financeiro_boletos.html',
+                           boletos=boletos, status_filtro=status)
+
+
+@admin_bp.route('/financeiro/boletos/emitir/<int:mensalidade_id>', methods=['POST'])
+@login_required
+@admin_required
+def financeiro_boleto_emitir(mensalidade_id):
+    m = Mensalidade.query.get_or_404(mensalidade_id)
+    try:
+        b = services_financeiro.emitir_boleto(m)
+        flash(f'Boleto emitido: {b.cora_boleto_id}', 'success')
+    except CoraError as e:
+        flash(f'Erro do Cora: {e}', 'danger')
+    return redirect(url_for('admin.financeiro_mensalidades', mes=m.mes, ano=m.ano))
+
+
+@admin_bp.route('/financeiro/boletos/<int:id>/cancelar', methods=['POST'])
+@login_required
+@admin_required
+def financeiro_boleto_cancelar(id):
+    b = Boleto.query.get_or_404(id)
+    if services_financeiro.cancelar_boleto(b):
+        flash('Boleto cancelado.', 'success')
+    else:
+        flash('Não foi possível cancelar (já pago?).', 'warning')
+    return redirect(request.referrer or url_for('admin.financeiro_boletos'))
+
+
+@admin_bp.route('/financeiro/boletos/sincronizar', methods=['POST'])
+@login_required
+@admin_required
+def financeiro_boletos_sincronizar():
+    res = services_financeiro.sincronizar_status_boletos()
+    flash(f"Sincronização: {res['pagos']} pagos, {res['vencidos']} vencidos, "
+          f"{res['erros']} erros.", 'info')
+    return redirect(request.referrer or url_for('admin.financeiro_boletos'))
+
+
+# Inadimplentes ---------------------------------------------------------------
+
+@admin_bp.route('/financeiro/inadimplentes')
+@login_required
+@admin_required
+def financeiro_inadimplentes():
+    escopo = request.args.get('escopo', 'todos')
+    mes = int(request.args.get('mes', date.today().month))
+    ano = int(request.args.get('ano', date.today().year))
+    lista = services_financeiro.inadimplentes(escopo=escopo, mes=mes, ano=ano)
+    return render_template(
+        'admin_financeiro_inadimplentes.html',
+        inadimplentes=lista, escopo=escopo, mes=mes, ano=ano,
+        mes_nome=MESES_PT[mes - 1], meses=MESES_PT,
+    )
+
+
+# Fluxo de caixa --------------------------------------------------------------
+
+@admin_bp.route('/financeiro/fluxo-caixa')
+@login_required
+@admin_required
+def financeiro_fluxo_caixa():
+    mes = int(request.args.get('mes', date.today().month))
+    ano = int(request.args.get('ano', date.today().year))
+    from calendar import monthrange
+    inicio = date(ano, mes, 1)
+    fim = date(ano, mes, monthrange(ano, mes)[1])
+    fluxo = services_financeiro.fluxo_caixa(inicio, fim)
+    categorias = CategoriaDespesa.query.order_by(CategoriaDespesa.nome).all()
+    return render_template(
+        'admin_financeiro_fluxo.html',
+        fluxo=fluxo, mes=mes, ano=ano, mes_nome=MESES_PT[mes - 1],
+        meses=MESES_PT, categorias=categorias, hoje=date.today(),
+    )
+
+
+@admin_bp.route('/financeiro/movimentacao/nova', methods=['POST'])
+@login_required
+@admin_required
+def financeiro_movimentacao_nova():
+    tipo = request.form.get('tipo', 'saida')
+    descricao = request.form.get('descricao', '').strip()
+    valor = _parse_decimal(request.form.get('valor'))
+    data_str = request.form.get('data')
+    categoria_id = request.form.get('categoria_id') or None
+
+    if not descricao or not valor or not data_str or tipo not in ('entrada', 'saida'):
+        flash('Preencha tipo, descrição, valor e data.', 'danger')
+        return redirect(url_for('admin.financeiro_fluxo_caixa'))
+
+    try:
+        data_lanc = date.fromisoformat(data_str)
+    except ValueError:
+        flash('Data inválida.', 'danger')
+        return redirect(url_for('admin.financeiro_fluxo_caixa'))
+
+    # Comprovante opcional
+    comprovante_path = None
+    arquivo = request.files.get('comprovante')
+    if arquivo and arquivo.filename:
+        if not _comprovante_valido(arquivo.filename):
+            flash('Comprovante: aceitamos apenas PDF, PNG, JPG ou WEBP.', 'danger')
+            return redirect(url_for('admin.financeiro_fluxo_caixa'))
+        # tamanho
+        arquivo.stream.seek(0, 2)
+        size = arquivo.stream.tell()
+        arquivo.stream.seek(0)
+        if size > COMPROVANTE_MAX_BYTES:
+            flash('Comprovante: tamanho máximo 5 MB.', 'danger')
+            return redirect(url_for('admin.financeiro_fluxo_caixa'))
+
+        ext = arquivo.filename.rsplit('.', 1)[1].lower()
+        nome = f'comp_{uuid.uuid4().hex[:12]}.{ext}'
+        comprovante_path = storage.save_upload(arquivo, nome, subdir='comprovantes')
+
+    services_financeiro.registrar_movimentacao_manual(
+        tipo=tipo, descricao=descricao, valor=valor, data=data_lanc,
+        categoria_id=int(categoria_id) if categoria_id else None,
+        comprovante_path=comprovante_path,
+        criado_por_id=current_user.id,
+    )
+    flash('Movimentação registrada.', 'success')
+    return redirect(url_for('admin.financeiro_fluxo_caixa',
+                            mes=data_lanc.month, ano=data_lanc.year))
+
+
+@admin_bp.route('/financeiro/movimentacao/<int:id>/excluir', methods=['POST'])
+@login_required
+@admin_required
+def financeiro_movimentacao_excluir(id):
+    m = Movimentacao.query.get_or_404(id)
+    if m.boleto_id:
+        flash('Não é possível excluir movimentação vinda de boleto. '
+              'Cancele o boleto, se for o caso.', 'warning')
+        return redirect(url_for('admin.financeiro_fluxo_caixa'))
+    # Apaga o arquivo de comprovante se existir
+    if m.comprovante_path:
+        storage.delete_upload(m.comprovante_path)
+    db.session.delete(m)
+    db.session.commit()
+    flash('Movimentação removida.', 'success')
+    return redirect(url_for('admin.financeiro_fluxo_caixa'))
+
+
+# Categorias ------------------------------------------------------------------
+
+@admin_bp.route('/financeiro/categorias', methods=['GET', 'POST'])
+@login_required
+@admin_required
+def financeiro_categorias():
+    if request.method == 'POST':
+        nome = (request.form.get('nome') or '').strip()
+        cor = (request.form.get('cor') or '').strip() or None
+        if not nome:
+            flash('Informe o nome.', 'danger')
+        elif CategoriaDespesa.query.filter_by(nome=nome).first():
+            flash('Já existe categoria com esse nome.', 'warning')
+        else:
+            db.session.add(CategoriaDespesa(nome=nome, cor=cor))
+            db.session.commit()
+            flash('Categoria criada.', 'success')
+        return redirect(url_for('admin.financeiro_categorias'))
+    cats = CategoriaDespesa.query.order_by(CategoriaDespesa.nome).all()
+    return render_template('admin_financeiro_categorias.html', categorias=cats)
+
+
+@admin_bp.route('/financeiro/categorias/<int:id>/excluir', methods=['POST'])
+@login_required
+@admin_required
+def financeiro_categoria_excluir(id):
+    cat = CategoriaDespesa.query.get_or_404(id)
+    if cat.movimentacoes:
+        flash('Categoria em uso por movimentações — desvincule antes.', 'warning')
+        return redirect(url_for('admin.financeiro_categorias'))
+    db.session.delete(cat)
+    db.session.commit()
+    flash('Categoria removida.', 'success')
+    return redirect(url_for('admin.financeiro_categorias'))
+
+
+# Cora — webhook + utilidades de mock -----------------------------------------
+
+@admin_bp.route('/financeiro/cora/webhook', methods=['POST'])
+def financeiro_cora_webhook():
+    """Endpoint público que o Cora chama quando um boleto muda de status.
+
+    Sem login (Cora não vai autenticar) — a segurança vem da validação de
+    assinatura HMAC quando ``CORA_MODE=real``. Por enquanto, em modo mock,
+    aceita qualquer POST com ``cora_id`` no JSON.
+    """
+    payload = request.get_json(silent=True) or {}
+    cora_id = payload.get('cora_id') or payload.get('id')
+    if not cora_id:
+        return jsonify({'ok': False, 'erro': 'cora_id ausente'}), 400
+
+    boleto = Boleto.query.filter_by(cora_boleto_id=cora_id).first()
+    if not boleto:
+        return jsonify({'ok': False, 'erro': 'boleto não encontrado'}), 404
+
+    evento = (payload.get('evento') or 'pago').lower()
+    if evento == 'pago':
+        services_financeiro.registrar_pagamento_boleto(boleto)
+    elif evento == 'cancelado':
+        boleto.status = 'cancelado'
+        db.session.commit()
+    return jsonify({'ok': True, 'boleto_id': boleto.id, 'status': boleto.status})
+
+
+@admin_bp.route('/financeiro/cora/simular-pagamento/<int:boleto_id>', methods=['POST'])
+@login_required
+@admin_required
+def financeiro_cora_simular_pagamento(boleto_id):
+    """Só funciona em modo mock — usado pra testar o fluxo localmente."""
+    boleto = Boleto.query.get_or_404(boleto_id)
+    cora = get_cora_client()
+    if not isinstance(cora, CoraMockClient):
+        flash('Simulação só funciona em CORA_MODE=mock.', 'warning')
+        return redirect(request.referrer or url_for('admin.financeiro_boletos'))
+    if not boleto.cora_boleto_id:
+        flash('Boleto sem cora_id (não foi emitido).', 'warning')
+        return redirect(request.referrer or url_for('admin.financeiro_boletos'))
+    cora.simular_pagamento(boleto.cora_boleto_id)
+    services_financeiro.registrar_pagamento_boleto(boleto)
+    flash(f'Pagamento simulado para boleto #{boleto.id}.', 'success')
+    return redirect(request.referrer or url_for('admin.financeiro_boletos'))
+
+
+@admin_bp.route('/financeiro/cora/mock-pdf/<cora_id>')
+@login_required
+@admin_required
+def financeiro_cora_mock_pdf(cora_id):
+    """Placeholder — em produção o link_pdf vem direto do Cora."""
+    return ('PDF fake do boleto %s.\nNo modo real, o Cora devolve um PDF aqui.'
+            % cora_id, 200, {'Content-Type': 'text/plain; charset=utf-8'})
+
+
+@admin_bp.route('/financeiro/cora/mock-boleto/<cora_id>')
+@login_required
+@admin_required
+def financeiro_cora_mock_boleto(cora_id):
+    return ('Página fake do boleto %s.\nNo modo real, é a URL pública do Cora.'
+            % cora_id, 200, {'Content-Type': 'text/plain; charset=utf-8'})

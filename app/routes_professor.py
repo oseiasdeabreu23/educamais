@@ -26,7 +26,7 @@ def professor_required(func):
 @login_required
 @professor_required
 def dashboard():
-    alunos = Aluno.query.all()
+    alunos = Aluno.query.filter_by(status='ativo').all()
     return render_template('dashboard_professor.html', alunos=alunos)
 
 
@@ -79,7 +79,9 @@ def lancar_nota():
 
     alunos_data = []
     if turma_id and disciplina_id:
-        alunos = Aluno.query.filter_by(turma_id=turma_id).order_by(Aluno.nome).all()
+        alunos = (Aluno.query
+                  .filter_by(turma_id=turma_id, status='ativo')
+                  .order_by(Aluno.nome).all())
         for aluno in alunos:
             notas_mes = {
                 n.mes: n.valor
@@ -191,7 +193,9 @@ def registrar_frequencia():
 
     alunos_data = []
     if turma_id and disciplina_id:
-        alunos = Aluno.query.filter_by(turma_id=turma_id).order_by(Aluno.nome).all()
+        alunos = (Aluno.query
+                  .filter_by(turma_id=turma_id, status='ativo')
+                  .order_by(Aluno.nome).all())
         for aluno in alunos:
             freq_hoje = Frequencia.query.filter_by(
                 aluno_id=aluno.id, disciplina_id=disciplina_id, data=data_freq).first()
@@ -240,7 +244,7 @@ def criar_atividade():
         except ValueError:
             data_at = date_type.today()
 
-        professor = Professor.query.filter_by(nome=current_user.nome).first()
+        professor = Professor.query.filter_by(user_id=current_user.id).first()
 
         atividade = Atividade(
             titulo=titulo, descricao=descricao,
@@ -302,17 +306,21 @@ def excluir_atividade(id):
 @login_required
 @professor_required
 def observacoes():
-    professor = Professor.query.filter_by(nome=current_user.nome).first()
+    professor = Professor.query.filter_by(user_id=current_user.id).first()
     if request.method == 'POST':
+        if not professor:
+            flash('Seu usuário não está vinculado a um registro de Professor. '
+                  'Peça ao admin para cadastrar/vincular em /admin/professores.', 'danger')
+            return redirect(url_for('professor.observacoes'))
         aluno_id = request.form.get('aluno_id')
         texto = request.form.get('texto')
-        obs = Observacao(aluno_id=aluno_id, professor_id=professor.id if professor else None, texto=texto)
+        obs = Observacao(aluno_id=aluno_id, professor_id=professor.id, texto=texto)
         db.session.add(obs)
         db.session.commit()
         flash('Observação adicionada', 'success')
         return redirect(url_for('professor.observacoes'))
 
-    alunos = Aluno.query.all()
+    alunos = Aluno.query.filter_by(status='ativo').order_by(Aluno.nome).all()
     observacoes = Observacao.query.order_by(Observacao.data.desc()).all()
     return render_template('professor_observacoes.html', alunos=alunos, observacoes=observacoes)
 
