@@ -336,7 +336,12 @@ def _chamar_painel(url, api_key, payload):
 
 
 def _construir_resultado(resp_painel, fonte):
-    """Normaliza resposta do painel pro formato interno."""
+    """Normaliza resposta do painel pro formato interno.
+
+    O painel pode retornar o status sob ``resultado`` (spec antiga) ou
+    ``status`` (resposta atual). Aceitamos os dois pra ficar resiliente
+    a mudanças de versão.
+    """
     if not isinstance(resp_painel, dict):
         return {
             'valido': False,
@@ -347,7 +352,9 @@ def _construir_resultado(resp_painel, fonte):
             'mensagem': 'Resposta do painel inesperada.',
             'resposta_painel': resp_painel,
         }
-    resultado = resp_painel.get('resultado') or RESULTADO_DESCONHECIDO
+    resultado = (resp_painel.get('resultado')
+                 or resp_painel.get('status')
+                 or RESULTADO_DESCONHECIDO)
     valido = bool(resp_painel.get('valido')) and resultado in RESULTADOS_VALIDOS
     horas = int(current_app.config.get('PAINEL_LICENCA_CACHE_HORAS', 6) or 6)
     agora = datetime.utcnow()
