@@ -64,7 +64,10 @@ def bloqueada():
             tentou_revalidar=True,
         )
 
-    estado = info_licenca() or {}
+    # Em prod o filesystem da Vercel é readonly e info_licenca() retorna None.
+    # Chamamos validar_licenca() (com cache normal) pra garantir que a tela
+    # sempre tenha um estado atualizado pra mostrar.
+    estado = validar_licenca() or {}
     return render_template(
         'licenca_bloqueada.html',
         estado=estado,
@@ -140,7 +143,11 @@ def admin():
 
         return redirect(url_for('licenca.admin'))
 
-    estado = info_licenca() or {}
+    # Em prod o cache de arquivo (instance/licenca_cache.json) não persiste —
+    # a Vercel monta o filesystem readonly. Por isso usamos validar_licenca()
+    # em vez de info_licenca() pra exibição: garante o estado mais atual,
+    # mesmo que custe uma chamada HTTP por visita à tela (frequência baixa).
+    estado = validar_licenca() or {}
 
     cfg_resumo = {
         'url': current_app.config.get('PAINEL_LICENCA_URL') or '',

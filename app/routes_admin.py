@@ -768,8 +768,12 @@ def configuracoes():
 
         return redirect(url_for('admin.configuracoes'))
 
+    # Usa g.licenca quando disponível (setado pelo before_request com o
+    # estado fresco da validação atual). Fallback: info_licenca() — cache
+    # de arquivo (não persiste em prod readonly, então pode vir vazio).
+    from flask import g
     from app.services_licenca import info_licenca
-    licenca_estado = info_licenca() or {}
+    licenca_estado = getattr(g, 'licenca', None) or info_licenca() or {}
     return render_template('admin_configuracoes.html', cfg=cfg,
                            licenca_estado=licenca_estado)
 
