@@ -272,6 +272,46 @@ toggle persistido em localStorage, drawer hamburger no mobile (<980px). Detalhes
 
 ---
 
+## Controle de acesso (RBAC simples)
+
+Implementação em [app/permissoes.py](app/permissoes.py). O campo `User.tipo`
+continua sendo a fonte da verdade do papel; a granularidade vem de uma
+**matriz de permissões em código** (`PERMISSOES`) que mapeia cada papel ao
+conjunto de chaves que ele pode executar.
+
+### Papéis existentes
+
+| Papel | Descrição |
+|---|---|
+| `admin` | Tudo. Wildcard `'*'`. |
+| `coordenador` | Cadastra alunos/profs/responsáveis (sem editar/excluir), matricula em cursos, emite cobrança, gera lote de mensalidades, vê financeiro. Não acessa configurações/backup/usuários. |
+| `gestor` | Só leitura — dashboards, relatórios, financeiro. Não cria, edita ou exclui nada. |
+| `professor`, `responsavel`, `aluno` | Mantêm os decorators próprios das blueprints `/professor`, `/responsavel`, `/aluno`. Não usam a matriz. |
+
+### Usando permissões
+
+- **Rota**: `@requires('aluno.criar')` → 403 se faltar permissão. Use para
+  rotas administrativas (admin/coordenador/gestor).
+- **Rotas com GET listagem + POST criação**: decorator com a permissão `.ver`
+  no topo + `if not pode(current_user, 'X.criar'): abort(403)` dentro do bloco
+  POST.
+- **Rotas estritamente admin** (configurações, backup, usuários, MP):
+  mantenha `@admin_required` para clareza.
+- **Template**: `{% if pode('aluno.editar') %}…{% endif %}` — esconde botões.
+  `pode` é injetado em todo template via context processor.
+- **Login**: papéis em `ROLES_ADMIN_LIKE` (admin, coordenador, gestor) são
+  redirecionados para `/admin/dashboard`. Os demais para suas blueprints.
+
+### Adicionar papel novo
+
+1. Adicione a chave em `PERMISSOES` com o set de chaves apropriadas.
+2. Adicione o label em `ROLES_LABEL`.
+3. Inclua em `ROLES_ADMIN_LIKE` se o papel usa a UI `/admin/*`.
+4. Inclua em `ROLES_CRIAVEIS_ADMIN` se admin deve poder criar via
+   `/admin/usuarios` (a UI já cobre os 3 atuais via botões "Criar acesso").
+
+Sem migration de banco — `User.tipo` é `String(20)` aceita qualquer valor.
+
 ## Convenções do projeto
 
 - Blueprints com decorator próprio de autorização: `admin_required`, `professor_required`,
@@ -421,6 +461,122 @@ exclusão pelo botão de lixeira (cancelar o boleto é o caminho).
   o Cora retorna a URL pública do PDF/boleto.
 - Lembrete por WhatsApp na tela de inadimplentes é só um link `wa.me/` — não envia
   automaticamente. Disparo automático fica pra fase 2 (provavelmente via `services.aviso_whatsapp`).
+
+---
+
+## Licenciamento via Painel
+
+Implementação em [app/services_licenca.py](app/services_licenca.py),
+[app/routes_licenca.py](app/routes_licenca.py) e hook `before_request` em
+[app/__init__.py](app/__init__.py). Painel externo:
+`https://painel-licencas-rho.vercel.app` (`POST /api/licenses/validate`).
+
+### Visão geral
+
+O app valida sua licença a cada request em endpoints não-livres. O resultado é
+cacheado em `instance/licenca_cache.json` por `PAINEL_LICENCA_CACHE_HORAS` (default 6h).
+Se o painel ficar inacessível, usa o cache mesmo expirado até `PAINEL_LICENCA_GRACE_DIAS`
+(default 3). Passou disso, retorna `resultado=offline_grace_expirado`.
+
+### Onde fica a configuração
+
+- **API key, documento (CPF/CNPJ), tipo de cliente e modo** → tabela
+  `config_licenca` (singleton, modelo `ConfigLicenca`). Editáveis pela UI
+  em `/admin/licenca`. Persiste sem precisar mexer no `.env`.
+- **URL do painel, cache, grace, debug** → variáveis em `.env`
+  (`PAINEL_LICENCA_URL`, `PAINEL_LICENCA_CACHE_HORAS`,
+  `PAINEL_LICENCA_GRACE_DIAS`, `PAINEL_LICENCA_DEBUG_RESULTADO`).
+
+`services_licenca._config_obrigatoria()` lê do banco primeiro; se vazio,
+faz fallback nas envs `PAINEL_LICENCA_API_KEY`/`_DOCUMENTO`/`_TIPO_CLIENTE`
+(retrocompat com instalações antigas).
+
+### Modos
+
+- **`bloqueio`** (default): redireciona pra `/licenca-bloqueada` quando
+  inválida. Enquanto a licença não validar como `ativo`, o app fica limitado —
+  o admin ainda consegue logar e abrir `/admin/licenca` (whitelisted) pra
+  configurar/revalidar.
+- **`log`**: só registra `WARNING` quando inválida e segue. Útil em dev
+  enquanto está validando a integração — não usar em produção.
+
+### Endpoints sempre liberados (whitelist do `before_request`)
+
+`static`, `healthz`, `licenca.bloqueada`, `licenca.admin`, `auth.login`,
+`auth.logout`, `auth.register`. Endpoint `None` (404) também passa, pra não criar
+loop em rotas inexistentes.
+
+### Machine ID — onde mora?
+
+- **Postgres (prod)**: coluna `machine_id String(64) nullable` em `ConfigSistema`
+  (singleton). Vercel é readonly FS, então **não** dá pra usar arquivo.
+- **SQLite (dev)**: `instance/machine_id.txt` (criado na 1ª chamada, mode 0600).
+
+A detecção é feita por prefixo da URI: `current_app.config['SQLALCHEMY_DATABASE_URI']`
+começando com `sqlite:` usa arquivo; qualquer outra coisa usa o banco. A coluna
+existe em ambos os bancos via migration `e7b91d8f2c45` — só não é populada em dev.
+
+### Cache e grace
+
+O dict salvo em `licenca_cache.json` tem este formato:
+
+```json
+{
+  "valido": true,
+  "resultado": "ativo",
+  "fonte": "api|cache|cache_grace|debug|grace_expirado|config",
+  "validado_em": "2026-05-11T10:00:00",
+  "expira_em": "2026-05-11T16:00:00",
+  "mensagem": "",
+  "resposta_painel": { ... }
+}
+```
+
+`info_licenca()` é **leitura pura** (não bate no painel). `validar_licenca()` é
+o orquestrador. `force_refresh=True` ignora o TTL mas ainda cai no grace se a
+chamada HTTP falhar.
+
+### Testando branches sem mexer no painel
+
+`PAINEL_LICENCA_DEBUG_RESULTADO=<valor>` curto-circuita `validar_licenca` e
+devolve um dict sintético com aquele `resultado`. **Não persiste no cache real**.
+Aceita qualquer string — incluindo os "locais" (`erro_rede`, `offline_grace_expirado`).
+Em produção, deixar vazio.
+
+### Resultados possíveis
+
+Do painel: `ativo`, `vencido`, `pendente`, `suspenso`, `bloqueado`, `cancelado`,
+`nao_encontrado`, `limite_excedido`.
+Locais: `erro_rede` (não usado diretamente), `offline_grace_expirado`,
+`sem_configuracao` (envs faltando), `desconhecido` (resposta atípica).
+
+Só `ativo` é considerado válido (`RESULTADOS_VALIDOS` em `services_licenca.py`).
+
+### Telas
+
+- `GET /licenca-bloqueada` — pública, standalone (não herda `base.html`).
+  POST com `action=revalidar` força nova validação; se voltar a ficar válida,
+  redireciona pro login. Admin logado vê atalho pra `/admin/licenca`.
+- `GET /admin/licenca` — admin_required, dentro do app-shell. Mostra status,
+  parâmetros técnicos (env), machine_id e form de edição com 4 campos:
+  tipo de cliente, documento (CPF/CNPJ), modo, API key (mascarada quando já
+  configurada). Ações:
+  - `action=salvar` — persiste no banco, invalida cache, dispara
+    `validar_licenca(force_refresh=True)` imediatamente.
+  - `action=revalidar` — força nova consulta sem mexer na config.
+  - `action=limpar_api_key` — remove só a key (mantém documento/modo).
+- Card "Licença de uso" em `/admin/configuracoes` linka pro detalhe.
+
+### Limitações conhecidas
+
+- HTTP timeout e retries são **hardcoded** em `services_licenca.py`
+  (`_HTTP_TIMEOUT=8s`, 2 retries com backoff 0.6s). Se precisar mexer, edita
+  o módulo — não exposto via env.
+- O Painel **não tem** webhook que avise mudança de status — depende do TTL
+  + revalidação manual. Em uso real, o admin clica "Revalidar agora" depois
+  de regularizar no painel.
+- `before_request` consulta cache a cada request; numa rede muito lenta isso
+  não é problema, mas evite chamar `force_refresh=True` em hot paths.
 
 ---
 

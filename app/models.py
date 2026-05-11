@@ -20,6 +20,11 @@ class Turma(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     nome = db.Column(db.String(100), nullable=False)
     alunos = db.relationship('Aluno', backref='turma', lazy=True)
+    encontros = db.relationship(
+        'EncontroTurma', backref='turma', lazy=True,
+        order_by='EncontroTurma.data, EncontroTurma.ordem',
+        cascade='all, delete-orphan'
+    )
 
 
 # Tabela de associação Professor <-> Disciplina (muitos para muitos)
@@ -28,6 +33,31 @@ professor_disciplina = db.Table(
     db.Column('professor_id', db.Integer, db.ForeignKey('professores.id')),
     db.Column('disciplina_id', db.Integer, db.ForeignKey('disciplinas.id'))
 )
+
+
+# Tabela de associação Professor <-> Turma (muitos para muitos).
+# Um professor pode lecionar em várias turmas. O campo legado
+# Professor.turma_id é mantido para compatibilidade com dados antigos.
+professor_turma = db.Table(
+    'professor_turma',
+    db.Column('professor_id', db.Integer, db.ForeignKey('professores.id')),
+    db.Column('turma_id', db.Integer, db.ForeignKey('turmas.id'))
+)
+
+
+class EncontroTurma(db.Model):
+    """Datas de aula previstas para uma turma. Configurado pelo admin no
+    cadastro/edição da turma — alimenta o seletor de data na frequência."""
+    __tablename__ = 'encontros_turma'
+    id = db.Column(db.Integer, primary_key=True)
+    turma_id = db.Column(db.Integer, db.ForeignKey('turmas.id'), nullable=False)
+    data = db.Column(db.Date, nullable=False)
+    ordem = db.Column(db.Integer, nullable=False, default=0)
+    criado_em = db.Column(db.DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        db.UniqueConstraint('turma_id', 'data', name='uq_encontro_turma_data'),
+    )
 
 
 class Disciplina(db.Model):
@@ -131,7 +161,14 @@ class Professor(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('usuarios.id'), nullable=True, unique=True)
 
     user = db.relationship('User', backref=db.backref('professor_profile', uselist=False))
-    turma = db.relationship('Turma', backref='professores', lazy=True)
+    turma = db.relationship('Turma', backref='professores', lazy=True,
+                            foreign_keys=[turma_id])
+    turmas = db.relationship(
+        'Turma',
+        secondary='professor_turma',
+        backref=db.backref('professores_lecionando', lazy=True),
+        lazy=True
+    )
     disciplinas = db.relationship(
         'Disciplina',
         secondary='professor_disciplina',
@@ -300,6 +337,16 @@ class Boleto(db.Model):
     link_pdf = db.Column(db.String(500), nullable=True)
     link_boleto = db.Column(db.String(500), nullable=True)
 
+    # Tipo da cobrança — discrimina origem (manual, integração)
+    tipo_cobranca = db.Column(db.String(20), nullable=False, default='cora')
+    # cora | boleto_manual | pix_manual | mp_pix | mp_boleto
+    linha_digitavel = db.Column(db.Text, nullable=True)
+    pix_copia_cola = db.Column(db.Text, nullable=True)
+    pdf_path = db.Column(db.String(500), nullable=True)
+
+    # Mercado Pago (preenchido quando tipo_cobranca in (mp_pix, mp_boleto))
+    mp_payment_id = db.Column(db.String(100), nullable=True, index=True)
+
 
 class CategoriaDespesa(db.Model):
     __tablename__ = 'categorias_despesa'
@@ -331,6 +378,80 @@ class ConfigSistema(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     nome = db.Column(db.String(100), nullable=False, default='EducaMais')
     logo_path = db.Column(db.String(500), nullable=True)
+    # Identificador único desta instância, usado pelo Painel de Licenças.
+    # Em SQLite (dev) fica em instance/machine_id.txt; em Postgres (prod,
+    # Vercel readonly FS) vive aqui. Preenchido na 1ª validação se vazio.
+    machine_id = db.Column(db.String(64), nullable=True)
+
+
+class IntegracaoMercadoPago(db.Model):
+    """Singleton (sempre ID=1) com credenciais do Mercado Pago.
+
+    `access_token` é o segredo principal — guardado em texto puro no banco
+    (instituicao já usa SQLite local com acesso restrito). Em prod com
+    Postgres compartilhado, considerar criptografia simétrica futura.
+    """
+    __tablename__ = 'integracao_mercadopago'
+    id = db.Column(db.Integer, primary_key=True)
+    ativo = db.Column(db.Boolean, nullable=False, default=False)
+    ambiente = db.Column(db.String(20), nullable=False, default='production')
+    # production | sandbox
+    access_token = db.Column(db.Text, nullable=True)
+    webhook_secret = db.Column(db.String(200), nullable=True)
+    notification_url = db.Column(db.String(500), nullable=True)
+    atualizado_em = db.Column(db.DateTime, default=datetime.utcnow,
+                              onupdate=datetime.utcnow)
+    atualizado_por_id = db.Column(db.Integer, db.ForeignKey('usuarios.id'),
+                                  nullable=True)
+
+    atualizado_por = db.relationship('User', lazy=True)
+
+    @property
+    def access_token_mascarado(self):
+        """Retorna o token com só os últimos 4 caracteres visíveis."""
+        if not self.access_token:
+            return ''
+        if len(self.access_token) <= 8:
+            return '••••'
+        return '••••••••' + self.access_token[-4:]
+
+
+class ConfigLicenca(db.Model):
+    """Singleton (sempre ID=1) com config da integração com o Painel de
+    Licenças. Substitui as envs ``PAINEL_LICENCA_API_KEY``,
+    ``PAINEL_LICENCA_DOCUMENTO``, ``PAINEL_LICENCA_TIPO_CLIENTE`` e
+    ``PAINEL_LICENCA_MODO`` — assim o admin configura tudo pela UI sem
+    precisar mexer no ``.env``.
+
+    Os parâmetros técnicos (``URL``, ``CACHE_HORAS``, ``GRACE_DIAS``,
+    ``DEBUG_RESULTADO``) continuam vindo do env porque não fazem sentido
+    expor pra usuário final.
+    """
+    __tablename__ = 'config_licenca'
+    id = db.Column(db.Integer, primary_key=True)
+    api_key = db.Column(db.Text, nullable=True)
+    documento = db.Column(db.String(20), nullable=True)
+    # pessoa_fisica | empresa (futuramente: municipio/ibge)
+    tipo_cliente = db.Column(db.String(30), nullable=True)
+    # log | bloqueio
+    modo = db.Column(db.String(20), nullable=False, default='bloqueio')
+    atualizado_em = db.Column(db.DateTime, default=datetime.utcnow,
+                              onupdate=datetime.utcnow)
+    atualizado_por_id = db.Column(db.Integer, db.ForeignKey('usuarios.id'),
+                                  nullable=True)
+
+    atualizado_por = db.relationship('User', lazy=True)
+
+    @property
+    def api_key_mascarada(self):
+        """Mostra só o prefixo (pk_) e os últimos 4 caracteres."""
+        if not self.api_key:
+            return ''
+        v = self.api_key
+        if len(v) <= 8:
+            return '••••'
+        prefixo = v[:3] if v[:3] in ('pk_', 'sk_') else v[:3]
+        return f'{prefixo}••••••••{v[-4:]}'
 
 
 # --------------------------------------------------------------------------- #

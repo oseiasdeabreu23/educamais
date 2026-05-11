@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="pt-BR" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ config_sistema.nome }} — Acesso bloqueado</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+  <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem('arvorecer-theme') || 'light';
+        document.documentElement.setAttribute('data-theme', t);
+      } catch (e) { document.documentElement.setAttribute('data-theme', 'light'); }
+    })();
+  </script>
+</head>
+<body>
+
+<main class="min-vh-100 d-flex align-items-center justify-content-center"
+      style="background: var(--bg); padding: 32px 16px;">
+  <div class="card" style="max-width: 560px; width:100%;">
+    <div class="card-body p-4 p-md-5">
+
+      <div class="d-flex align-items-center gap-3 mb-3">
+        <span class="qa-icon"
+              style="background: var(--score-bad-bg); color: var(--score-bad-fg);
+                     width: 56px; height: 56px; flex-shrink: 0;
+                     border-radius: var(--r-md);
+                     display:inline-flex; align-items:center; justify-content:center;">
+          <i class="bi bi-shield-exclamation" style="font-size: 1.8rem"></i>
+        </span>
+        <div>
+          <div class="eyebrow dim">{{ config_sistema.nome }}</div>
+          <h2 class="mb-0">Acesso bloqueado</h2>
+        </div>
+      </div>
+
+      <p style="color: var(--text-2); line-height: 1.6;">
+        A licença desta instância não está ativa no Painel de Licenças. O sistema
+        está bloqueado até que a situação seja regularizada.
+      </p>
+
+      <div class="p-3 rounded mb-3"
+           style="background: var(--surface-2); border: 1px solid var(--border);">
+        <div class="row g-2" style="font-size: 0.92rem;">
+          <div class="col-5" style="color: var(--text-3);">Resultado</div>
+          <div class="col-7">
+            <span class="badge badge-bad">{{ estado.resultado or '—' }}</span>
+          </div>
+
+          <div class="col-5" style="color: var(--text-3);">Instituição</div>
+          <div class="col-7" style="color: var(--text);">{{ config_sistema.nome }}</div>
+
+          <div class="col-5" style="color: var(--text-3);">Última validação</div>
+          <div class="col-7" style="color: var(--text);">
+            {{ estado.validado_em or '—' }}
+          </div>
+
+          <div class="col-5" style="color: var(--text-3);">Versão</div>
+          <div class="col-7" style="color: var(--text);">
+            v{{ versao_sistema }}
+          </div>
+        </div>
+      </div>
+
+      {% if estado.mensagem %}
+      <div class="alert alert-warning" role="alert" style="font-size: 0.9rem;">
+        <i class="bi bi-info-circle me-1"></i>{{ estado.mensagem }}
+      </div>
+      {% endif %}
+
+      <p style="color: var(--text-3); font-size: 0.88rem; line-height: 1.6;">
+        Entre em contato com o suporte para regularizar a licença. Após o pagamento
+        ou liberação no painel, clique em <strong>Tentar novamente</strong>.
+      </p>
+
+      {% if tentou_revalidar %}
+      <div class="alert alert-info" role="alert" style="font-size: 0.88rem;">
+        <i class="bi bi-arrow-repeat me-1"></i>
+        Nova consulta enviada ao painel — o resultado acima reflete a resposta atual.
+      </div>
+      {% endif %}
+
+      <form method="POST" action="{{ url_for('licenca.bloqueada') }}"
+            class="d-grid gap-2">
+        <input type="hidden" name="action" value="revalidar">
+        <button type="submit" class="btn btn-primary">
+          <i class="bi bi-arrow-clockwise me-1"></i>Tentar novamente
+        </button>
+
+        {% if current_user.is_authenticated and current_user.tipo == 'admin' %}
+        <a href="{{ url_for('licenca.admin') }}"
+           class="btn btn-outline-primary">
+          <i class="bi bi-shield-check me-1"></i>Ver detalhes da licença
+        </a>
+        {% else %}
+        <a href="{{ url_for('auth.login') }}"
+           class="btn btn-outline-secondary">
+          <i class="bi bi-box-arrow-in-right me-1"></i>Ir para o login
+        </a>
+        {% endif %}
+      </form>
+
+      <div class="text-center mt-4"
+           style="color: var(--text-3); font-size: 0.8rem;">
+        © {{ now().year }} {{ config_sistema.nome }} · v{{ versao_sistema }}
+      </div>
+    </div>
+  </div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

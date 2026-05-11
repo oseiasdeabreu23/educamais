@@ -1,0 +1,249 @@
+{% extends 'base.html' %}
+{% block page_title %}Licença de uso{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <h2>Licença de uso</h2>
+  <p>Configure e monitore a integração com o Painel de Licenças</p>
+</div>
+
+{% set valido = estado.get('valido') if estado else False %}
+{% set resultado = estado.get('resultado') if estado else 'sem_consulta' %}
+{% set fonte = estado.get('fonte') if estado else '—' %}
+
+<div class="row g-4">
+
+  {# ── Status atual ── #}
+  <div class="col-lg-7">
+    <div class="card">
+      <div class="card-header">
+        <i class="bi bi-shield-check me-2"></i>Status atual
+      </div>
+      <div class="card-body">
+
+        <div class="d-flex align-items-center gap-3 mb-3">
+          {% if valido %}
+            <span class="qa-icon"
+                  style="background: var(--score-ok-bg); color: var(--score-ok-fg);
+                         width: 56px; height: 56px;
+                         border-radius: var(--r-md);
+                         display:inline-flex; align-items:center; justify-content:center;">
+              <i class="bi bi-shield-check" style="font-size: 1.8rem"></i>
+            </span>
+          {% else %}
+            <span class="qa-icon"
+                  style="background: var(--score-bad-bg); color: var(--score-bad-fg);
+                         width: 56px; height: 56px;
+                         border-radius: var(--r-md);
+                         display:inline-flex; align-items:center; justify-content:center;">
+              <i class="bi bi-shield-exclamation" style="font-size: 1.8rem"></i>
+            </span>
+          {% endif %}
+
+          <div>
+            <div class="eyebrow dim">Resultado do painel</div>
+            <h3 class="mb-0">
+              {% if valido %}Licença ativa{% else %}Licença inválida{% endif %}
+            </h3>
+            <div style="color: var(--text-3); font-size: 0.88rem;">
+              {% if valido %}
+                <span class="badge badge-ok">{{ resultado }}</span>
+              {% else %}
+                <span class="badge badge-bad">{{ resultado }}</span>
+              {% endif %}
+              <span class="ms-1">fonte: {{ fonte }}</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="row g-2" style="font-size: 0.92rem;">
+          <div class="col-sm-5" style="color: var(--text-3);">Última validação</div>
+          <div class="col-sm-7" style="color: var(--text);">
+            {{ estado.get('validado_em') or '—' }}
+          </div>
+
+          <div class="col-sm-5" style="color: var(--text-3);">TTL do cache até</div>
+          <div class="col-sm-7" style="color: var(--text);">
+            {{ estado.get('expira_em') or '—' }}
+          </div>
+
+          <div class="col-sm-5" style="color: var(--text-3);">Mensagem</div>
+          <div class="col-sm-7" style="color: var(--text);">
+            {{ estado.get('mensagem') or '—' }}
+          </div>
+
+          <div class="col-sm-5" style="color: var(--text-3);">Machine ID</div>
+          <div class="col-sm-7"
+               style="color: var(--text); font-family: var(--font-mono, monospace); word-break: break-all;">
+            {{ machine_id }}
+          </div>
+        </div>
+
+        <hr class="my-3">
+
+        <form method="POST" action="{{ url_for('licenca.admin') }}">
+          <input type="hidden" name="action" value="revalidar">
+          <button type="submit" class="btn btn-primary">
+            <i class="bi bi-arrow-clockwise me-1"></i>Revalidar agora
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  {# ── Parâmetros técnicos (env-only, leitura) ── #}
+  <div class="col-lg-5">
+    <div class="card">
+      <div class="card-header">
+        <i class="bi bi-gear me-2"></i>Parâmetros técnicos
+      </div>
+      <div class="card-body">
+        <div class="row g-2" style="font-size: 0.9rem;">
+
+          <div class="col-5" style="color: var(--text-3);">Painel URL</div>
+          <div class="col-7" style="color: var(--text); word-break: break-all;">
+            {{ cfg.url or '—' }}
+          </div>
+
+          <div class="col-5" style="color: var(--text-3);">Cache (horas)</div>
+          <div class="col-7" style="color: var(--text);">{{ cfg.cache_horas }}</div>
+
+          <div class="col-5" style="color: var(--text-3);">Grace (dias)</div>
+          <div class="col-7" style="color: var(--text);">{{ cfg.grace_dias }}</div>
+
+          {% if cfg.debug_resultado %}
+          <div class="col-5" style="color: var(--text-3);">Debug</div>
+          <div class="col-7">
+            <span class="badge badge-warn">forçando: {{ cfg.debug_resultado }}</span>
+          </div>
+          {% endif %}
+        </div>
+
+        <hr class="my-3">
+
+        <div style="color: var(--text-3); font-size: 0.82rem; line-height: 1.6;">
+          Esses parâmetros vêm do arquivo <code>.env</code> e exigem reinício
+          do servidor pra mudar. Eles raramente precisam ser ajustados.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ── Form de edição ── #}
+<div class="row g-4 mt-1">
+  <div class="col-12">
+    <div class="card">
+      <div class="card-header">
+        <i class="bi bi-pencil-square me-2"></i>Configurar licença
+      </div>
+      <div class="card-body">
+
+        <form method="POST" action="{{ url_for('licenca.admin') }}">
+          <input type="hidden" name="action" value="salvar">
+
+          <div class="row g-3">
+
+            {# Tipo de cliente #}
+            <div class="col-md-4">
+              <label class="form-label fw-500">Tipo de cliente</label>
+              <select name="tipo_cliente" class="form-select">
+                {% for value, label in tipos_cliente %}
+                  <option value="{{ value }}"
+                          {% if cfg.tipo_cliente == value %}selected{% endif %}>
+                    {{ label }}
+                  </option>
+                {% endfor %}
+              </select>
+              <div class="form-text">
+                Define se o documento abaixo é CPF ou CNPJ.
+              </div>
+            </div>
+
+            {# Documento #}
+            <div class="col-md-4">
+              <label class="form-label fw-500">CPF / CNPJ</label>
+              <input class="form-control"
+                     name="documento"
+                     value="{{ cfg.documento }}"
+                     placeholder="Só dígitos"
+                     inputmode="numeric"
+                     maxlength="20">
+              <div class="form-text">
+                Cole o número conforme cadastrado no Painel — só dígitos
+                (pontos/traços são removidos automaticamente).
+              </div>
+            </div>
+
+            {# Modo #}
+            <div class="col-md-4">
+              <label class="form-label fw-500">Modo</label>
+              <select name="modo" class="form-select">
+                {% for value, label in modos %}
+                  <option value="{{ value }}"
+                          {% if cfg.modo == value %}selected{% endif %}>
+                    {{ label }}
+                  </option>
+                {% endfor %}
+              </select>
+              <div class="form-text">
+                <strong>Bloqueio</strong>: redireciona pra tela de bloqueio
+                quando inválida. <strong>Apenas registrar</strong>: só loga.
+              </div>
+            </div>
+
+            {# API Key #}
+            <div class="col-12">
+              <label class="form-label fw-500">API key do painel</label>
+
+              {% if cfg.api_key_definida %}
+              <div class="d-flex align-items-center gap-2 mb-2 p-2 rounded"
+                   style="background: var(--surface-2); border: 1px solid var(--border)">
+                <span class="badge badge-ok"><i class="bi bi-check-circle"></i> configurada</span>
+                <code style="font-size: 0.85rem; color: var(--text-2);">
+                  {{ cfg.api_key_mascarada }}
+                </code>
+                <button type="submit" form="formLimparKey"
+                        class="btn btn-sm btn-outline-danger ms-auto"
+                        onclick="return confirm('Remover a API key?')">
+                  <i class="bi bi-trash me-1"></i>Remover
+                </button>
+              </div>
+              {% endif %}
+
+              <input class="form-control"
+                     type="password"
+                     name="api_key"
+                     placeholder="{% if cfg.api_key_definida %}Deixe vazio pra manter a atual{% else %}Cole a API key (pk_...){% endif %}"
+                     autocomplete="off">
+              <div class="form-text">
+                Gere a chave no Painel de Licenças. Ela é mostrada apenas uma
+                vez na criação — se perder, gere uma nova.
+              </div>
+            </div>
+          </div>
+
+          <div class="mt-4 d-flex gap-2">
+            <button type="submit" class="btn btn-primary px-4">
+              <i class="bi bi-check-lg me-1"></i>Salvar e validar
+            </button>
+          </div>
+        </form>
+
+        {# Form separado pra remover a key, fora do form principal #}
+        <form id="formLimparKey" method="POST"
+              action="{{ url_for('licenca.admin') }}">
+          <input type="hidden" name="action" value="limpar_api_key">
+        </form>
+
+        {% if cfg.atualizado_em %}
+        <div class="mt-3" style="color: var(--text-3); font-size: 0.82rem;">
+          Última alteração: {{ cfg.atualizado_em.strftime('%d/%m/%Y %H:%M') }}
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

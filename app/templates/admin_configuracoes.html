@@ -151,6 +151,83 @@
 
 </div>
 
+{# ── Integrações ── #}
+<div class="row g-4 mt-1">
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-header">
+        <i class="bi bi-plug me-2"></i>Integrações
+      </div>
+      <div class="card-body">
+        <a href="{{ url_for('admin.configuracoes_mercadopago') }}"
+           class="d-flex align-items-center justify-content-between gap-3 p-3 rounded text-decoration-none"
+           style="background:var(--surface-2); color:var(--text); border:1px solid var(--border)">
+          <div class="d-flex align-items-center gap-3">
+            <span class="qa-icon" style="background:rgba(0,176,209,.15); color:#00b0d1; width:42px; height:42px; flex-shrink:0">
+              <i class="bi bi-credit-card-2-front"></i>
+            </span>
+            <div>
+              <div class="fw-600">Mercado Pago</div>
+              <div class="text-muted" style="font-size:0.85rem">
+                Cobranças automáticas via PIX e Boleto
+              </div>
+            </div>
+          </div>
+          <i class="bi bi-chevron-right text-muted"></i>
+        </a>
+      </div>
+    </div>
+  </div>
+
+  {# ── Licença de uso ── #}
+  {% set lic_valido = licenca_estado.get('valido') if licenca_estado else False %}
+  {% set lic_resultado = licenca_estado.get('resultado') if licenca_estado else 'sem_consulta' %}
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-header">
+        <i class="bi bi-shield-check me-2"></i>Licença de uso
+      </div>
+      <div class="card-body">
+        <a href="{{ url_for('licenca.admin') }}"
+           class="d-flex align-items-center justify-content-between gap-3 p-3 rounded text-decoration-none"
+           style="background:var(--surface-2); color:var(--text); border:1px solid var(--border)">
+          <div class="d-flex align-items-center gap-3">
+            {% if lic_valido %}
+              <span class="qa-icon"
+                    style="background:var(--score-ok-bg); color:var(--score-ok-fg); width:42px; height:42px; flex-shrink:0">
+                <i class="bi bi-shield-check"></i>
+              </span>
+            {% else %}
+              <span class="qa-icon"
+                    style="background:var(--score-bad-bg); color:var(--score-bad-fg); width:42px; height:42px; flex-shrink:0">
+                <i class="bi bi-shield-exclamation"></i>
+              </span>
+            {% endif %}
+            <div>
+              <div class="fw-600">
+                Painel de Licenças
+                {% if lic_valido %}
+                  <span class="badge badge-ok ms-1">{{ lic_resultado }}</span>
+                {% else %}
+                  <span class="badge badge-bad ms-1">{{ lic_resultado }}</span>
+                {% endif %}
+              </div>
+              <div class="text-muted" style="font-size:0.85rem">
+                {% if licenca_estado.get('validado_em') %}
+                  Última validação: {{ licenca_estado.validado_em }}
+                {% else %}
+                  Nenhuma validação registrada ainda
+                {% endif %}
+              </div>
+            </div>
+          </div>
+          <i class="bi bi-chevron-right text-muted"></i>
+        </a>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
   const inputLogo   = document.getElementById('inputLogo');
   const previewBox  = document.getElementById('previewBox');

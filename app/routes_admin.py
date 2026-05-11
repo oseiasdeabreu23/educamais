@@ -10,11 +10,13 @@ from app import db
 from app.models import (User, Aluno, Responsavel, Professor, Turma, Disciplina,
                         Curso, Modulo, Videoaula, MatriculaCurso, ConfigSistema,
                         Mensalidade, Boleto, CategoriaDespesa, Movimentacao,
-                        PlanoPagamento)
+                        PlanoPagamento, IntegracaoMercadoPago, EncontroTurma)
 from app.services import (media_turma, frequencia_geral, alunos_baixo_desempenho,
                           cpf_valido, cep_valido, uf_valida, so_digitos, UFS_BR)
-from app import services_backup, services_financeiro, storage
+from app import services_backup, services_financeiro, services_mercadopago, storage
 from app.services_cora import get_cora_client, CoraError, CoraMockClient
+from app.services_mercadopago import MercadoPagoError
+from app.permissoes import requires, pode, ROLES_CRIAVEIS_ADMIN, ROLES_LABEL
 from datetime import date, datetime
 from sqlalchemy.exc import IntegrityError
 
@@ -29,6 +31,10 @@ admin_bp = Blueprint('admin', __name__, template_folder='templates')
 
 
 def admin_required(func):
+    """Acesso somente para admin (papel mais restrito). Mantido para
+    rotas sensíveis: configurações, backup, gestão de usuários,
+    integração Mercado Pago, etc. Para permissões granulares, use
+    o decorator @requires('chave') do módulo app.permissoes."""
     from functools import wraps
 
     @wraps(func)
@@ -45,7 +51,7 @@ def admin_required(func):
 
 @admin_bp.route('/dashboard')
 @login_required
-@admin_required
+@requires('dashboard.ver')
 def dashboard():
     turmas = Turma.query.all()
     relatorios = {
@@ -155,9 +161,11 @@ def _sincronizar_matriculas(aluno, curso_ids):
 
 @admin_bp.route('/alunos', methods=['GET', 'POST'])
 @login_required
-@admin_required
+@requires('aluno.ver')
 def alunos():
     if request.method == 'POST':
+        if not pode(current_user, 'aluno.criar'):
+            abort(403)
         aluno = Aluno()
         ok, erro = _aplicar_dados_aluno(aluno, request.form, is_novo=True)
         if not ok:
@@ -190,7 +198,7 @@ def alunos():
 
 @admin_bp.route('/alunos/editar/<int:id>', methods=['POST'])
 @login_required
-@admin_required
+@requires('aluno.editar')
 def editar_aluno(id):
     aluno = Aluno.query.get_or_404(id)
     status_anterior = aluno.status
@@ -219,7 +227,7 @@ def editar_aluno(id):
 
 @admin_bp.route('/alunos/excluir/<int:id>', methods=['POST'])
 @login_required
-@admin_required
+@requires('aluno.excluir')
 def excluir_aluno(id):
     aluno = Aluno.query.get_or_404(id)
     db.session.delete(aluno)
@@ -230,14 +238,47 @@ def excluir_aluno(id):
 
 # ── Turmas ─────────────────────────────────────────────────────────────────────
 
+def _sincronizar_encontros(turma, datas_str):
+    """Substitui os encontros da turma pelas datas recebidas (YYYY-MM-DD).
+
+    Ignora strings vazias e duplicadas, e ordena cronologicamente.
+    """
+    datas_validas = []
+    vistos = set()
+    for s in datas_str:
+        s = (s or '').strip()
+        if not s or s in vistos:
+            continue
+        try:
+            d = date.fromisoformat(s)
+        except ValueError:
+            continue
+        vistos.add(s)
+        datas_validas.append(d)
+    datas_validas.sort()
+
+    # Remove os atuais e regrava (mais simples que diff incremental)
+    for enc in list(turma.encontros):
+        db.session.delete(enc)
+    for i, d in enumerate(datas_validas):
+        db.session.add(EncontroTurma(turma_id=turma.id, data=d, ordem=i))
+
+
 @admin_bp.route('/turmas', methods=['GET', 'POST'])
 @login_required
-@admin_required
+@requires('turma.ver')
 def turmas():
     if request.method == 'POST':
-        nome = request.form.get('nome')
+        if not pode(current_user, 'turma.criar'):
+            abort(403)
+        nome = (request.form.get('nome') or '').strip()
+        if not nome:
+            flash('Nome da turma é obrigatório.', 'danger')
+            return redirect(url_for('admin.turmas'))
         turma = Turma(nome=nome)
         db.session.add(turma)
+        db.session.flush()
+        _sincronizar_encontros(turma, request.form.getlist('encontros'))
         db.session.commit()
         flash('Turma criada.', 'success')
         return redirect(url_for('admin.turmas'))
@@ -246,15 +287,47 @@ def turmas():
     return render_template('admin_turmas.html', turmas=turmas)
 
 
+@admin_bp.route('/turmas/<int:id>')
+@login_required
+@requires('turma.ver')
+def turma_detalhe(id):
+    turma = Turma.query.get_or_404(id)
+    alunos = (Aluno.query.filter_by(turma_id=id)
+              .order_by(Aluno.nome).all())
+    return render_template('admin_turma_detalhe.html', turma=turma, alunos=alunos)
+
+
 @admin_bp.route('/turmas/editar/<int:id>', methods=['POST'])
 @login_required
 @admin_required
 def editar_turma(id):
     turma = Turma.query.get_or_404(id)
-    turma.nome = request.form.get('nome')
+    nome = (request.form.get('nome') or '').strip()
+    if not nome:
+        flash('Nome da turma é obrigatório.', 'danger')
+        return redirect(request.referrer or url_for('admin.turmas'))
+    turma.nome = nome
+    _sincronizar_encontros(turma, request.form.getlist('encontros'))
     db.session.commit()
     flash('Turma atualizada.', 'success')
-    return redirect(url_for('admin.turmas'))
+    return redirect(request.referrer or url_for('admin.turmas'))
+
+
+@admin_bp.route('/turmas/<int:id>/encontros.json')
+@login_required
+def turma_encontros_json(id):
+    """Endpoint usado pelo painel do professor para listar datas configuradas."""
+    if not current_user.is_authenticated or current_user.tipo not in ('admin', 'professor'):
+        abort(403)
+    turma = Turma.query.get_or_404(id)
+    return jsonify({
+        'turma_id': turma.id,
+        'turma_nome': turma.nome,
+        'encontros': [
+            {'data': e.data.isoformat(), 'ordem': e.ordem}
+            for e in turma.encontros
+        ],
+    })
 
 
 @admin_bp.route('/turmas/excluir/<int:id>', methods=['POST'])
@@ -273,13 +346,24 @@ def excluir_turma(id):
 
 # ── Professores ────────────────────────────────────────────────────────────────
 
+def _sincronizar_turmas_professor(professor, turma_ids):
+    """Atualiza professor.turmas (N:N) com a lista recebida e mantém
+    professor.turma_id (campo legado) apontando para a primeira da lista."""
+    ids = {int(t) for t in turma_ids if t}
+    turmas_objs = Turma.query.filter(Turma.id.in_(ids)).all() if ids else []
+    professor.turmas = turmas_objs
+    professor.turma_id = turmas_objs[0].id if turmas_objs else None
+
+
 @admin_bp.route('/professores', methods=['GET', 'POST'])
 @login_required
-@admin_required
+@requires('professor.ver')
 def professores():
     if request.method == 'POST':
+        if not pode(current_user, 'professor.criar'):
+            abort(403)
         nome = request.form.get('nome')
-        turma_id = request.form.get('turma_id') or None
+        turma_ids = request.form.getlist('turma_ids')
         user_id = request.form.get('user_id', type=int) or None
         disciplina_ids = request.form.getlist('disciplina_ids')
 
@@ -287,9 +371,11 @@ def professores():
             flash('Esse usuário já está vinculado a outro professor.', 'danger')
             return redirect(url_for('admin.professores'))
 
-        professor = Professor(nome=nome, turma_id=turma_id, user_id=user_id)
+        professor = Professor(nome=nome, user_id=user_id)
         db.session.add(professor)
         db.session.flush()
+
+        _sincronizar_turmas_professor(professor, turma_ids)
 
         for disc_id in disciplina_ids:
             disciplina = Disciplina.query.get(disc_id)
@@ -313,11 +399,10 @@ def professores():
 
 @admin_bp.route('/professores/editar/<int:id>', methods=['POST'])
 @login_required
-@admin_required
+@requires('professor.editar')
 def editar_professor(id):
     professor = Professor.query.get_or_404(id)
     professor.nome = request.form.get('nome')
-    professor.turma_id = request.form.get('turma_id') or None
 
     novo_user_id = request.form.get('user_id', type=int) or None
     if novo_user_id != professor.user_id:
@@ -327,8 +412,9 @@ def editar_professor(id):
             return redirect(url_for('admin.professores'))
         professor.user_id = novo_user_id
 
-    disciplina_ids = request.form.getlist('disciplina_ids')
+    _sincronizar_turmas_professor(professor, request.form.getlist('turma_ids'))
 
+    disciplina_ids = request.form.getlist('disciplina_ids')
     professor.disciplinas.clear()
     for disc_id in disciplina_ids:
         disciplina = Disciplina.query.get(disc_id)
@@ -342,7 +428,7 @@ def editar_professor(id):
 
 @admin_bp.route('/professores/excluir/<int:id>', methods=['POST'])
 @login_required
-@admin_required
+@requires('professor.excluir')
 def excluir_professor(id):
     professor = Professor.query.get_or_404(id)
     db.session.delete(professor)
@@ -355,9 +441,11 @@ def excluir_professor(id):
 
 @admin_bp.route('/disciplinas', methods=['GET', 'POST'])
 @login_required
-@admin_required
+@requires('disciplina.ver')
 def disciplinas():
     if request.method == 'POST':
+        if not pode(current_user, 'disciplina.criar'):
+            abort(403)
         nome = request.form.get('nome')
         disciplina = Disciplina(nome=nome)
         db.session.add(disciplina)
@@ -373,9 +461,11 @@ def disciplinas():
 
 @admin_bp.route('/responsaveis', methods=['GET', 'POST'])
 @login_required
-@admin_required
+@requires('responsavel.ver')
 def responsaveis():
     if request.method == 'POST':
+        if not pode(current_user, 'responsavel.criar'):
+            abort(403)
         nome = request.form.get('nome')
         telefone = request.form.get('telefone')
         email = request.form.get('email', '').strip().lower() or None
@@ -416,7 +506,7 @@ def usuarios():
             aluno_id_form = request.form.get('aluno_id', type=int)
             professor_id_form = request.form.get('professor_id', type=int)
 
-            if tipo not in ('professor', 'responsavel', 'aluno'):
+            if tipo not in ROLES_CRIAVEIS_ADMIN:
                 flash('Tipo de usuário inválido.', 'danger')
                 return redirect(url_for('admin.usuarios'))
 
@@ -483,16 +573,19 @@ def usuarios():
                            responsaveis=responsaveis,
                            alunos_sem_acesso=alunos_sem_acesso,
                            professores_sem_acesso=professores_sem_acesso,
-                           emails_com_acesso=emails_com_acesso)
+                           emails_com_acesso=emails_com_acesso,
+                           roles_label=ROLES_LABEL)
 
 
 # ── Cursos ─────────────────────────────────────────────────────────────────────
 
 @admin_bp.route('/cursos', methods=['GET', 'POST'])
 @login_required
-@admin_required
+@requires('curso.ver')
 def cursos():
     if request.method == 'POST':
+        if not pode(current_user, 'curso.criar'):
+            abort(403)
         titulo = request.form.get('titulo', '').strip()
         descricao = request.form.get('descricao', '').strip()
         capa_url = request.form.get('capa_url', '').strip()
@@ -513,12 +606,21 @@ def cursos():
 
 @admin_bp.route('/cursos/<int:curso_id>', methods=['GET', 'POST'])
 @login_required
-@admin_required
+@requires('curso.ver')
 def curso_detalhe(curso_id):
     curso = Curso.query.get_or_404(curso_id)
 
     if request.method == 'POST':
         action = request.form.get('action')
+
+        # Coordenador pode matricular/desmatricular alunos no curso, mas
+        # não pode editar conteúdo do curso (módulos, vídeos, dados).
+        if action in ('matricular', 'desmatricular'):
+            if not pode(current_user, 'matricula.gerenciar'):
+                abort(403)
+        else:
+            if current_user.tipo != 'admin':
+                abort(403)
 
         if action == 'editar_curso':
             titulo = request.form.get('titulo', '').strip()
@@ -666,7 +768,10 @@ def configuracoes():
 
         return redirect(url_for('admin.configuracoes'))
 
-    return render_template('admin_configuracoes.html', cfg=cfg)
+    from app.services_licenca import info_licenca
+    licenca_estado = info_licenca() or {}
+    return render_template('admin_configuracoes.html', cfg=cfg,
+                           licenca_estado=licenca_estado)
 
 
 # ── Vincular aluno/turma ───────────────────────────────────────────────────────
@@ -802,7 +907,7 @@ def _periodo_atual():
 
 @admin_bp.route('/financeiro')
 @login_required
-@admin_required
+@requires('financeiro.ver')
 def financeiro():
     services_financeiro.seed_categorias_padrao()
     mes, ano = _periodo_atual()
@@ -822,7 +927,7 @@ def financeiro():
 
 @admin_bp.route('/financeiro/mensalidades')
 @login_required
-@admin_required
+@requires('financeiro.ver')
 def financeiro_mensalidades():
     mes = int(request.args.get('mes', date.today().month))
     ano = int(request.args.get('ano', date.today().year))
@@ -833,12 +938,13 @@ def financeiro_mensalidades():
         'admin_financeiro_mensalidades.html',
         mensalidades=mensalidades, mes=mes, ano=ano,
         mes_nome=MESES_PT[mes - 1], meses=MESES_PT,
+        mp_ativo=services_mercadopago.is_mp_active(),
     )
 
 
 @admin_bp.route('/financeiro/mensalidades/lote', methods=['POST'])
 @login_required
-@admin_required
+@requires('mensalidade.gerar')
 def financeiro_mensalidades_lote():
     mes = int(request.form.get('mes', date.today().month))
     ano = int(request.form.get('ano', date.today().year))
@@ -869,7 +975,7 @@ def financeiro_mensalidade_excluir(id):
 
 @admin_bp.route('/financeiro/planos/<int:aluno_id>')
 @login_required
-@admin_required
+@requires('financeiro.ver')
 def financeiro_plano(aluno_id):
     aluno = Aluno.query.get_or_404(aluno_id)
     plano_ativo = services_financeiro.plano_ativo_do_aluno(aluno)
@@ -885,7 +991,7 @@ def financeiro_plano(aluno_id):
 
 @admin_bp.route('/financeiro/planos/<int:aluno_id>/criar', methods=['POST'])
 @login_required
-@admin_required
+@requires('mensalidade.gerar')
 def financeiro_plano_criar(aluno_id):
     aluno = Aluno.query.get_or_404(aluno_id)
     try:
@@ -940,7 +1046,7 @@ def financeiro_plano_cancelar(aluno_id):
 
 @admin_bp.route('/financeiro/boletos')
 @login_required
-@admin_required
+@requires('financeiro.ver')
 def financeiro_boletos():
     status = request.args.get('status', '')
     q = Boleto.query.order_by(Boleto.vencimento.desc(), Boleto.id.desc())
@@ -953,7 +1059,7 @@ def financeiro_boletos():
 
 @admin_bp.route('/financeiro/boletos/emitir/<int:mensalidade_id>', methods=['POST'])
 @login_required
-@admin_required
+@requires('boleto.emitir')
 def financeiro_boleto_emitir(mensalidade_id):
     m = Mensalidade.query.get_or_404(mensalidade_id)
     try:
@@ -986,11 +1092,69 @@ def financeiro_boletos_sincronizar():
     return redirect(request.referrer or url_for('admin.financeiro_boletos'))
 
 
+# Cobrança manual (boleto colado / PIX copia-e-cola) --------------------------
+
+@admin_bp.route('/financeiro/cobranca/registrar/<int:mensalidade_id>', methods=['POST'])
+@login_required
+@requires('boleto.emitir')
+def financeiro_cobranca_registrar(mensalidade_id):
+    m = Mensalidade.query.get_or_404(mensalidade_id)
+    tipo = (request.form.get('tipo') or '').strip()
+    if tipo not in ('boleto_manual', 'pix_manual'):
+        flash('Tipo de cobrança inválido.', 'danger')
+        return redirect(url_for('admin.financeiro_mensalidades', mes=m.mes, ano=m.ano))
+
+    linha = (request.form.get('linha_digitavel') or '').strip() or None
+    pix = (request.form.get('pix_copia_cola') or '').strip() or None
+
+    pdf_path = None
+    if tipo == 'boleto_manual':
+        arquivo = request.files.get('pdf_boleto')
+        if arquivo and arquivo.filename:
+            ext = arquivo.filename.rsplit('.', 1)[-1].lower() if '.' in arquivo.filename else ''
+            if ext != 'pdf':
+                flash('PDF do boleto: aceitamos apenas arquivos .pdf.', 'danger')
+                return redirect(url_for('admin.financeiro_mensalidades', mes=m.mes, ano=m.ano))
+            arquivo.stream.seek(0, 2)
+            size = arquivo.stream.tell()
+            arquivo.stream.seek(0)
+            if size > COMPROVANTE_MAX_BYTES:
+                flash('PDF do boleto: tamanho máximo 5 MB.', 'danger')
+                return redirect(url_for('admin.financeiro_mensalidades', mes=m.mes, ano=m.ano))
+            nome = f'cob_{uuid.uuid4().hex[:12]}.pdf'
+            pdf_path = storage.save_upload(arquivo, nome, subdir='cobrancas')
+
+    try:
+        services_financeiro.registrar_cobranca_manual(
+            mensalidade=m, tipo=tipo,
+            linha_digitavel=linha, pix_copia_cola=pix, pdf_path=pdf_path,
+        )
+        flash('Cobrança registrada.', 'success')
+    except ValueError as e:
+        if pdf_path:
+            storage.delete_upload(pdf_path)
+        flash(str(e), 'danger')
+    return redirect(url_for('admin.financeiro_mensalidades', mes=m.mes, ano=m.ano))
+
+
+@admin_bp.route('/financeiro/cobranca/<int:id>/pago', methods=['POST'])
+@login_required
+@admin_required
+def financeiro_cobranca_pago(id):
+    boleto = Boleto.query.get_or_404(id)
+    if boleto.status == 'pago':
+        flash('Esta cobrança já estava marcada como paga.', 'warning')
+    else:
+        services_financeiro.marcar_cobranca_paga(boleto)
+        flash('Cobrança marcada como paga.', 'success')
+    return redirect(request.referrer or url_for('admin.financeiro_boletos'))
+
+
 # Inadimplentes ---------------------------------------------------------------
 
 @admin_bp.route('/financeiro/inadimplentes')
 @login_required
-@admin_required
+@requires('financeiro.ver')
 def financeiro_inadimplentes():
     escopo = request.args.get('escopo', 'todos')
     mes = int(request.args.get('mes', date.today().month))
@@ -1007,7 +1171,7 @@ def financeiro_inadimplentes():
 
 @admin_bp.route('/financeiro/fluxo-caixa')
 @login_required
-@admin_required
+@requires('financeiro.ver')
 def financeiro_fluxo_caixa():
     mes = int(request.args.get('mes', date.today().month))
     ano = int(request.args.get('ano', date.today().year))
@@ -1189,3 +1353,135 @@ def financeiro_cora_mock_pdf(cora_id):
 def financeiro_cora_mock_boleto(cora_id):
     return ('Página fake do boleto %s.\nNo modo real, é a URL pública do Cora.'
             % cora_id, 200, {'Content-Type': 'text/plain; charset=utf-8'})
+
+
+# Mercado Pago — configuração + cobrança + webhook ----------------------------
+
+@admin_bp.route('/configuracoes/mercadopago', methods=['GET', 'POST'])
+@login_required
+@admin_required
+def configuracoes_mercadopago():
+    integ = services_mercadopago.get_integracao_mp()
+
+    if request.method == 'POST':
+        ativo = request.form.get('ativo') == '1'
+        ambiente = (request.form.get('ambiente') or 'production').strip()
+        if ambiente not in ('production', 'sandbox'):
+            ambiente = 'production'
+        access_token_in = (request.form.get('access_token') or '').strip()
+        webhook_secret_in = (request.form.get('webhook_secret') or '').strip()
+        notification_url = (request.form.get('notification_url') or '').strip() or None
+
+        # Token vazio significa "não alterar" — só substitui se o admin colou um novo.
+        if access_token_in:
+            integ.access_token = access_token_in
+        if webhook_secret_in:
+            integ.webhook_secret = webhook_secret_in
+
+        # Marcar pra esvaziar (campo "limpar" enviado pelo botão dedicado)
+        if request.form.get('limpar_token') == '1':
+            integ.access_token = None
+        if request.form.get('limpar_secret') == '1':
+            integ.webhook_secret = None
+
+        integ.ativo = ativo and bool(integ.access_token)
+        integ.ambiente = ambiente
+        integ.notification_url = notification_url
+        integ.atualizado_por_id = current_user.id
+
+        db.session.commit()
+        if ativo and not integ.access_token:
+            flash('Não dá pra ativar sem um Access Token. Cole o token e salve novamente.',
+                  'warning')
+        else:
+            flash('Configurações do Mercado Pago salvas.', 'success')
+        return redirect(url_for('admin.configuracoes_mercadopago'))
+
+    return render_template(
+        'admin_configuracoes_mp.html',
+        integ=integ,
+        webhook_url_publica=url_for('admin.financeiro_mp_webhook', _external=True),
+    )
+
+
+@admin_bp.route('/configuracoes/mercadopago/testar', methods=['POST'])
+@login_required
+@admin_required
+def configuracoes_mercadopago_testar():
+    integ = services_mercadopago.get_integracao_mp()
+    if not (integ.access_token or '').strip():
+        flash('Cole um Access Token e salve antes de testar.', 'warning')
+        return redirect(url_for('admin.configuracoes_mercadopago'))
+    try:
+        client = services_mercadopago.MercadoPagoClient(integ)
+        client.testar_conexao()
+        flash('Conexão com Mercado Pago OK — token válido.', 'success')
+    except MercadoPagoError as e:
+        flash(f'Falha ao conectar: {e}', 'danger')
+    return redirect(url_for('admin.configuracoes_mercadopago'))
+
+
+@admin_bp.route('/financeiro/cobranca/mp/<int:mensalidade_id>', methods=['POST'])
+@login_required
+@requires('boleto.emitir')
+def financeiro_cobranca_mp(mensalidade_id):
+    m = Mensalidade.query.get_or_404(mensalidade_id)
+    tipo = (request.form.get('tipo') or '').strip()
+    if tipo not in ('pix', 'boleto'):
+        flash('Tipo MP inválido. Use pix ou boleto.', 'danger')
+        return redirect(url_for('admin.financeiro_mensalidades', mes=m.mes, ano=m.ano))
+    try:
+        b = services_financeiro.emitir_cobranca_mp(m, tipo)
+        flash(f'Cobrança {tipo.upper()} criada no Mercado Pago (id {b.mp_payment_id}).',
+              'success')
+    except MercadoPagoError as e:
+        flash(f'Mercado Pago: {e}', 'danger')
+    except ValueError as e:
+        flash(str(e), 'danger')
+    return redirect(url_for('admin.financeiro_mensalidades', mes=m.mes, ano=m.ano))
+
+
+@admin_bp.route('/financeiro/mp/webhook', methods=['POST'])
+def financeiro_mp_webhook():
+    """Endpoint público chamado pelo Mercado Pago a cada mudança de status.
+
+    Sem login (MP chama de fora). Validação via HMAC-SHA256 quando o
+    webhook_secret está configurado.
+    """
+    integ = IntegracaoMercadoPago.query.first()
+    if not integ or not integ.ativo:
+        return jsonify({'ok': False, 'erro': 'integração inativa'}), 200
+
+    payload = request.get_json(silent=True) or {}
+    data_id = ((payload.get('data') or {}).get('id')
+               or payload.get('id') or request.args.get('data.id') or '')
+    x_signature = request.headers.get('x-signature') or ''
+    x_request_id = request.headers.get('x-request-id') or ''
+
+    if integ.webhook_secret and not services_mercadopago.validar_assinatura_webhook(
+        integ.webhook_secret, x_signature, x_request_id, data_id,
+    ):
+        return jsonify({'ok': False, 'erro': 'assinatura inválida'}), 401
+
+    if not data_id:
+        return jsonify({'ok': True, 'msg': 'sem data.id'}), 200
+
+    boleto = services_financeiro.boleto_por_mp_payment_id(data_id)
+    if not boleto:
+        # MP às vezes envia eventos de outros tipos (merchant_order). Aceita silenciosamente.
+        return jsonify({'ok': True, 'msg': 'sem boleto correspondente'}), 200
+
+    try:
+        client = services_mercadopago.MercadoPagoClient(integ)
+        info = client.consultar_pagamento(data_id)
+    except MercadoPagoError as e:
+        return jsonify({'ok': False, 'erro': str(e)}), 500
+
+    status_mp = (info.get('status') or '').lower()
+    if status_mp == 'approved' and boleto.status != 'pago':
+        services_financeiro.registrar_pagamento_boleto(boleto)
+    elif status_mp in ('cancelled', 'rejected') and boleto.status not in ('pago', 'cancelado'):
+        boleto.status = 'cancelado'
+        db.session.commit()
+
+    return jsonify({'ok': True, 'boleto_id': boleto.id, 'status': boleto.status})
