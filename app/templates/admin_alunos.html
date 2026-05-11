@@ -145,7 +145,10 @@
                value="{{ a.mensalidade_padrao if is_edit and a.mensalidade_padrao is not none else '' }}">
       </div>
       <div class="col-12">
-        <label class="label">Cursos matriculados</label>
+        <label class="label">
+          Cursos matriculados
+          <small class="dim">· marque um ou mais</small>
+        </label>
         {% set ids_atuais = (a.matriculas | map(attribute='curso_id') | list) if is_edit else [] %}
         <div class="row g-1">
           {% for c in cursos %}
@@ -168,6 +171,7 @@
 <div class="row g-3">
 
   {# ── Formulário de cadastro ── #}
+  {% if pode('aluno.criar') %}
   <div class="col-lg-5">
     <div class="card">
       <div class="card-h">
@@ -185,9 +189,10 @@
       </form>
     </div>
   </div>
+  {% endif %}
 
   {# ── Tabela ── #}
-  <div class="col-lg-7">
+  <div class="{% if pode('aluno.criar') %}col-lg-7{% else %}col-12{% endif %}">
     <div class="card no-pad">
       <div class="card-h" style="padding:20px 20px 16px; margin:0">
         <div>
@@ -255,27 +260,34 @@
             </td>
             <td>
               <div class="table-actions">
+                {% if pode('financeiro.ver') %}
                 <a href="{{ url_for('admin.financeiro_plano', aluno_id=a.id) }}"
                    class="btn btn-ghost btn-sm" title="Plano de pagamento">
                   <i class="bi bi-cash-coin"></i>
                 </a>
+                {% endif %}
+                {% if pode('aluno.editar') %}
                 <button class="btn btn-ghost btn-sm"
                         data-bs-toggle="modal"
                         data-bs-target="#editModal{{ a.id }}"
                         title="Editar">
                   <i class="bi bi-pencil"></i>
                 </button>
+                {% endif %}
+                {% if pode('aluno.excluir') %}
                 <form method="POST" action="{{ url_for('admin.excluir_aluno', id=a.id) }}"
                       onsubmit="return confirm('Excluir {{ a.nome }}?')" style="display:inline">
                   <button type="submit" class="btn btn-ghost btn-sm" title="Excluir" style="color:var(--bad)">
                     <i class="bi bi-trash"></i>
                   </button>
                 </form>
+                {% endif %}
               </div>
             </td>
           </tr>
 
           <!-- Modal editar -->
+          {% if pode('aluno.editar') %}
           <div class="modal fade" id="editModal{{ a.id }}" tabindex="-1">
             <div class="modal-dialog modal-lg">
               <div class="modal-content">
@@ -296,6 +308,7 @@
               </div>
             </div>
           </div>
+          {% endif %}
           {% endfor %}
         </tbody>
       </table>

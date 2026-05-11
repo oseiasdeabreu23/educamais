@@ -7,6 +7,20 @@
   <p>Selecione a turma, disciplina e data para registrar a chamada</p>
 </div>
 
+{% if sem_vinculo %}
+<div class="alert alert-warning">
+  <i class="bi bi-exclamation-triangle me-1"></i>
+  Seu usuário ainda não está vinculado a um registro de professor. Peça ao
+  administrador para fazer o vínculo em <code>/admin/professores</code>.
+</div>
+{% elif not turmas %}
+<div class="alert alert-info">
+  <i class="bi bi-info-circle me-1"></i>
+  Nenhuma turma foi atribuída a você ainda. Peça ao administrador para vincular
+  uma ou mais turmas ao seu cadastro.
+</div>
+{% endif %}
+
 <!-- Filtros -->
 <div class="card mb-4">
   <div class="card-body">
@@ -31,9 +45,36 @@
         </select>
       </div>
       <div class="col-md-3">
-        <label class="form-label">Data</label>
+        <label class="form-label">
+          Data
+          {% if encontros %}
+          <small class="text-muted">· encontros da turma</small>
+          {% endif %}
+        </label>
+        {% if encontros %}
+        <select class="form-select" name="data" id="seletorData"
+                onchange="onChangeData(this)">
+          {% set existe_match = encontros | selectattr('data') | map(attribute='data') | map('string') | list %}
+          {% set data_string = data %}
+          {% for e in encontros %}
+            {% set iso = e.data.isoformat() %}
+            <option value="{{ iso }}" {% if iso == data_string %}selected{% endif %}>
+              {{ e.data.strftime('%d/%m/%Y (%a)') }}
+            </option>
+          {% endfor %}
+          <option value="__outra__"
+                  {% if data_string not in existe_match %}selected{% endif %}>
+            Outra data…
+          </option>
+        </select>
+        <input type="date" class="form-control mt-2" id="dataLivre" name="data_livre"
+               value="{{ data }}"
+               style="display: {% if data_string not in existe_match %}block{% else %}none{% endif %}"
+               onchange="document.getElementById('seletorData').value = '__outra__'; sincronizarData()">
+        {% else %}
         <input type="date" class="form-control" name="data"
                value="{{ data }}" onchange="this.form.submit()">
+        {% endif %}
       </div>
       <div class="col-md-3">
         <label class="form-label d-block">&nbsp;</label>
@@ -44,6 +85,39 @@
     </form>
   </div>
 </div>
+
+{% if encontros %}
+<script>
+function onChangeData(sel) {
+  const livre = document.getElementById('dataLivre');
+  if (sel.value === '__outra__') {
+    livre.style.display = 'block';
+    livre.focus();
+    return;
+  }
+  livre.style.display = 'none';
+  // submeter usando a data do select
+  sel.form.submit();
+}
+function sincronizarData() {
+  const livre = document.getElementById('dataLivre');
+  const sel = document.getElementById('seletorData');
+  if (!livre.value) return;
+  // Troca o valor do select pelo valor digitado (option dinâmico) para
+  // que o submit envie data=YYYY-MM-DD em vez de "__outra__".
+  let opt = sel.querySelector('option[data-livre="1"]');
+  if (!opt) {
+    opt = document.createElement('option');
+    opt.dataset.livre = '1';
+    sel.appendChild(opt);
+  }
+  opt.value = livre.value;
+  opt.textContent = 'Data informada: ' + livre.value;
+  sel.value = livre.value;
+  sel.form.submit();
+}
+</script>
+{% endif %}
 
 {% if turma_id and disciplina_id %}
 {% if alunos_data %}

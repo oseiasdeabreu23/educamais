@@ -32,6 +32,7 @@
       </form>
     </div>
 
+    {% if pode('mensalidade.gerar') %}
     <div class="card mt-3">
       <div class="card-h">
         <div>
@@ -58,6 +59,7 @@
         </button>
       </form>
     </div>
+    {% endif %}
   </div>
 
   {# ── Tabela ── #}
@@ -77,8 +79,9 @@
             <th>Responsável</th>
             <th>Vencimento</th>
             <th class="text-end">Valor</th>
-            <th>Boleto</th>
-            <th style="width:160px"></th>
+            <th>Cobrança</th>
+            <th>Status</th>
+            <th style="width:200px"></th>
           </tr>
         </thead>
         <tbody>
@@ -86,10 +89,27 @@
           {% set ult = m.boletos | sort(attribute='id') | last %}
           <tr>
             <td><div class="fw-600">{{ m.aluno.nome }}</div></td>
-            <td class="dim">{{ m.responsavel.nome }}</td>
+            <td class="dim">{{ m.responsavel.nome if m.responsavel else 'O próprio aluno' }}</td>
             <td class="dim">{{ m.vencimento.strftime('%d/%m/%Y') }}</td>
             <td class="text-end fw-600">
               R$ {{ '{:,.2f}'.format(m.valor).replace(',', 'X').replace('.', ',').replace('X', '.') }}
+            </td>
+            <td>
+              {% if ult %}
+                {% if ult.tipo_cobranca == 'pix_manual' %}
+                <span class="badge badge-info"><i class="bi bi-qr-code"></i> PIX manual</span>
+                {% elif ult.tipo_cobranca == 'boleto_manual' %}
+                <span class="badge badge-info"><i class="bi bi-file-earmark-text"></i> Boleto manual</span>
+                {% elif ult.tipo_cobranca == 'mp_pix' %}
+                <span class="badge" style="background:rgba(0,176,209,.18); color:#00b0d1"><i class="bi bi-qr-code"></i> PIX MP</span>
+                {% elif ult.tipo_cobranca == 'mp_boleto' %}
+                <span class="badge" style="background:rgba(0,176,209,.18); color:#00b0d1"><i class="bi bi-file-earmark-text"></i> Boleto MP</span>
+                {% else %}
+                <span class="badge"><i class="bi bi-bank"></i> Cora</span>
+                {% endif %}
+              {% else %}
+                <span class="dim" style="font-size:12px">—</span>
+              {% endif %}
             </td>
             <td>
               {% if ult %}
@@ -108,36 +128,68 @@
             </td>
             <td>
               <div class="table-actions">
-                {% if not ult or ult.status == 'cancelado' %}
+                {% if (not ult or ult.status == 'cancelado') and pode('boleto.emitir') %}
+                <button type="button" class="btn btn-ghost btn-sm"
+                        title="Registrar cobrança"
+                        data-bs-toggle="modal"
+                        data-bs-target="#modalCobranca{{ m.id }}">
+                  <i class="bi bi-plus-circle"></i> Cobrança
+                </button>
+                {% endif %}
+
+                {% if ult and ult.linha_digitavel %}
+                <button type="button" class="btn btn-ghost btn-sm"
+                        title="Copiar linha digitável"
+                        onclick="navigator.clipboard.writeText({{ ult.linha_digitavel | tojson }}); this.innerHTML='<i class=\'bi bi-check\'></i>'; setTimeout(()=>this.innerHTML='<i class=\'bi bi-clipboard\'></i>', 1500);">
+                  <i class="bi bi-clipboard"></i>
+                </button>
+                {% endif %}
+                {% if ult and ult.pix_copia_cola %}
+                <button type="button" class="btn btn-ghost btn-sm"
+                        title="Copiar código PIX"
+                        onclick="navigator.clipboard.writeText({{ ult.pix_copia_cola | tojson }}); this.innerHTML='<i class=\'bi bi-check\'></i>'; setTimeout(()=>this.innerHTML='<i class=\'bi bi-clipboard\'></i>', 1500);">
+                  <i class="bi bi-clipboard"></i>
+                </button>
+                {% endif %}
+                {% if ult and ult.pdf_path %}
+                <a href="{{ url_for('static', filename='uploads/' + ult.pdf_path) }}"
+                   target="_blank" class="btn btn-ghost btn-sm" title="Abrir PDF">
+                  <i class="bi bi-file-earmark-pdf"></i>
+                </a>
+                {% endif %}
+                {% if ult and ult.link_pdf and ult.tipo_cobranca == 'mp_boleto' %}
+                <a href="{{ ult.link_pdf }}" target="_blank"
+                   class="btn btn-ghost btn-sm" title="Abrir boleto (PDF)">
+                  <i class="bi bi-file-earmark-pdf"></i>
+                </a>
+                {% endif %}
+                {% if ult and ult.link_boleto and ult.tipo_cobranca == 'mp_pix' %}
+                <a href="{{ ult.link_boleto }}" target="_blank"
+                   class="btn btn-ghost btn-sm" title="Abrir página de pagamento">
+                  <i class="bi bi-box-arrow-up-right"></i>
+                </a>
+                {% endif %}
+
+                {% if ult and ult.status in ['aberto', 'vencido'] and current_user.tipo == 'admin' %}
                 <form method="POST"
-                      action="{{ url_for('admin.financeiro_boleto_emitir', mensalidade_id=m.id) }}"
+                      action="{{ url_for('admin.financeiro_cobranca_pago', id=ult.id) }}"
                       style="display:inline">
-                  <button type="submit" class="btn btn-ghost btn-sm" title="Emitir boleto">
-                    <i class="bi bi-send-fill"></i>
+                  <button type="submit" class="btn btn-ghost btn-sm"
+                          title="Marcar como pago" style="color:var(--ok)">
+                    <i class="bi bi-check2-circle"></i>
                   </button>
                 </form>
-                {% endif %}
-                {% if ult and ult.status in ['aberto', 'vencido'] %}
                 <form method="POST"
                       action="{{ url_for('admin.financeiro_boleto_cancelar', id=ult.id) }}"
-                      onsubmit="return confirm('Cancelar boleto?')"
+                      onsubmit="return confirm('Cancelar cobrança?')"
                       style="display:inline">
-                  <button type="submit" class="btn btn-ghost btn-sm" title="Cancelar boleto"
+                  <button type="submit" class="btn btn-ghost btn-sm" title="Cancelar cobrança"
                           style="color:var(--bad)">
                     <i class="bi bi-x-circle"></i>
                   </button>
                 </form>
                 {% endif %}
-                {% if ult and ult.status in ['aberto', 'vencido'] %}
-                <form method="POST"
-                      action="{{ url_for('admin.financeiro_cora_simular_pagamento', boleto_id=ult.id) }}"
-                      style="display:inline">
-                  <button type="submit" class="btn btn-ghost btn-sm"
-                          title="Simular pagamento (mock)">
-                    <i class="bi bi-check2-square"></i>
-                  </button>
-                </form>
-                {% endif %}
+                {% if current_user.tipo == 'admin' %}
                 <form method="POST"
                       action="{{ url_for('admin.financeiro_mensalidade_excluir', id=m.id) }}"
                       onsubmit="return confirm('Excluir mensalidade {{ m.aluno.nome }} {{ m.mes }}/{{ m.ano }}?')"
@@ -147,6 +199,7 @@
                     <i class="bi bi-trash"></i>
                   </button>
                 </form>
+                {% endif %}
               </div>
             </td>
           </tr>
@@ -162,5 +215,174 @@
     </div>
   </div>
 </div>
+
+{# ── Modais "Registrar cobrança" — um por mensalidade sem cobrança ativa ── #}
+{% if pode('boleto.emitir') %}
+{% for m in mensalidades %}
+{% set ult = m.boletos | sort(attribute='id') | last %}
+{% if not ult or ult.status == 'cancelado' %}
+<div class="modal fade" id="modalCobranca{{ m.id }}" tabindex="-1"
+     aria-labelledby="modalCobrancaLabel{{ m.id }}" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title" id="modalCobrancaLabel{{ m.id }}">
+            Registrar cobrança
+          </h5>
+          <div class="dim" style="font-size:13px">
+            {{ m.aluno.nome }} — {{ '%02d' % m.mes }}/{{ m.ano }} —
+            R$ {{ '{:,.2f}'.format(m.valor).replace(',', 'X').replace('.', ',').replace('X', '.') }}
+          </div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+      </div>
+
+      <div class="modal-body">
+        {# Tabs Boleto / PIX / Boleto MP / PIX MP #}
+        <ul class="nav nav-tabs mb-3" role="tablist">
+          <li class="nav-item" role="presentation">
+            <button class="nav-link active" type="button" role="tab"
+                    data-bs-toggle="tab" data-bs-target="#tabBoleto{{ m.id }}">
+              <i class="bi bi-file-earmark-text"></i> Boleto manual
+            </button>
+          </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link" type="button" role="tab"
+                    data-bs-toggle="tab" data-bs-target="#tabPix{{ m.id }}">
+              <i class="bi bi-qr-code"></i> PIX manual
+            </button>
+          </li>
+          {% if mp_ativo %}
+          <li class="nav-item" role="presentation">
+            <button class="nav-link" type="button" role="tab"
+                    data-bs-toggle="tab" data-bs-target="#tabMpPix{{ m.id }}">
+              <i class="bi bi-qr-code"></i> PIX <span class="dim" style="font-size:11px">(MP)</span>
+            </button>
+          </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link" type="button" role="tab"
+                    data-bs-toggle="tab" data-bs-target="#tabMpBoleto{{ m.id }}">
+              <i class="bi bi-file-earmark-text"></i> Boleto <span class="dim" style="font-size:11px">(MP)</span>
+            </button>
+          </li>
+          {% endif %}
+        </ul>
+
+        <div class="tab-content">
+          {# ── Boleto manual ── #}
+          <div class="tab-pane fade show active" id="tabBoleto{{ m.id }}" role="tabpanel">
+            <form method="POST"
+                  action="{{ url_for('admin.financeiro_cobranca_registrar', mensalidade_id=m.id) }}"
+                  enctype="multipart/form-data">
+              <input type="hidden" name="tipo" value="boleto_manual">
+              <div class="mb-3">
+                <label class="label">Linha digitável *</label>
+                <textarea name="linha_digitavel" class="input" rows="2"
+                          placeholder="23793.38128 60082.611111 11111.111118 1 ..."
+                          style="font-family:ui-monospace,Menlo,Consolas,monospace; font-size:13px"></textarea>
+                <div class="dim" style="font-size:12px; margin-top:4px">
+                  Cole a linha do boleto gerado no app do seu banco (47 dígitos com pontos/espaços).
+                </div>
+              </div>
+              <div class="mb-3">
+                <label class="label">PDF do boleto (opcional)</label>
+                <input type="file" name="pdf_boleto" class="input" accept="application/pdf">
+                <div class="dim" style="font-size:12px; margin-top:4px">
+                  PDF do boleto gerado no banco. Máximo 5 MB.
+                </div>
+              </div>
+              <button type="submit" class="btn btn-primary">
+                <i class="bi bi-check-circle"></i> Salvar cobrança
+              </button>
+            </form>
+          </div>
+
+          {# ── PIX manual ── #}
+          <div class="tab-pane fade" id="tabPix{{ m.id }}" role="tabpanel">
+            <form method="POST"
+                  action="{{ url_for('admin.financeiro_cobranca_registrar', mensalidade_id=m.id) }}">
+              <input type="hidden" name="tipo" value="pix_manual">
+              <div class="mb-3">
+                <label class="label">Código copia-e-cola *</label>
+                <textarea name="pix_copia_cola" class="input" rows="5"
+                          placeholder="00020126580014BR.GOV.BCB.PIX0136a629..."
+                          style="font-family:ui-monospace,Menlo,Consolas,monospace; font-size:12px"></textarea>
+                <div class="dim" style="font-size:12px; margin-top:4px">
+                  Cole o código PIX gerado no app do seu banco (BR Code completo).
+                </div>
+              </div>
+              <button type="submit" class="btn btn-primary">
+                <i class="bi bi-check-circle"></i> Salvar cobrança
+              </button>
+            </form>
+          </div>
+
+          {% if mp_ativo %}
+          {# ── PIX Mercado Pago ── #}
+          <div class="tab-pane fade" id="tabMpPix{{ m.id }}" role="tabpanel">
+            <form method="POST"
+                  action="{{ url_for('admin.financeiro_cobranca_mp', mensalidade_id=m.id) }}">
+              <input type="hidden" name="tipo" value="pix">
+              <div class="dim mb-3" style="font-size:13px">
+                Vai criar um PIX automaticamente no Mercado Pago, com código copia-e-cola
+                e link de pagamento. O sistema é notificado quando o aluno paga.
+              </div>
+              <div style="background:var(--surface-2); padding:10px; border-radius:6px; font-size:12px"
+                   class="mb-3">
+                <b>Pagador:</b> {{ m.aluno.nome }}
+                {% if m.responsavel and m.responsavel.email %}
+                  <br><b>Email do responsável:</b> {{ m.responsavel.email }}
+                {% endif %}
+              </div>
+              <button type="submit" class="btn btn-primary">
+                <i class="bi bi-lightning-charge"></i> Gerar PIX no Mercado Pago
+              </button>
+            </form>
+          </div>
+
+          {# ── Boleto Mercado Pago ── #}
+          <div class="tab-pane fade" id="tabMpBoleto{{ m.id }}" role="tabpanel">
+            <form method="POST"
+                  action="{{ url_for('admin.financeiro_cobranca_mp', mensalidade_id=m.id) }}">
+              <input type="hidden" name="tipo" value="boleto">
+              <div class="dim mb-3" style="font-size:13px">
+                Vai gerar um boleto Bradesco automaticamente via Mercado Pago.
+                <b>Exige CPF e endereço completo</b> do aluno (CEP, logradouro, número,
+                bairro, cidade, UF).
+              </div>
+              <div style="background:var(--surface-2); padding:10px; border-radius:6px; font-size:12px"
+                   class="mb-3">
+                <b>Pagador:</b> {{ m.aluno.nome }}<br>
+                <b>CPF:</b>
+                {% if m.aluno.cpf %}{{ m.aluno.cpf_formatado }}{% else %}<span style="color:var(--bad)">⚠ não cadastrado</span>{% endif %}
+                <br>
+                <b>Endereço:</b>
+                {% if m.aluno.cep and m.aluno.logradouro %}
+                  {{ m.aluno.logradouro }}, {{ m.aluno.numero or 'S/N' }} —
+                  {{ m.aluno.bairro }} — {{ m.aluno.cidade }}/{{ m.aluno.uf }}
+                  ({{ m.aluno.cep_formatado }})
+                {% else %}
+                  <span style="color:var(--bad)">⚠ incompleto</span>
+                {% endif %}
+              </div>
+              <button type="submit" class="btn btn-primary">
+                <i class="bi bi-lightning-charge"></i> Gerar Boleto no Mercado Pago
+              </button>
+            </form>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button type="button" class="btn btn-ghost" data-bs-dismiss="modal">Fechar</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endfor %}
+{% endif %}
 
 {% endblock %}

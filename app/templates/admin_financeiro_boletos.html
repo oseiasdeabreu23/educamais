@@ -1,12 +1,12 @@
 {% extends 'base.html' %}
-{% block page_title %}Boletos{% endblock %}
-{% block page_subtitle %}<div class="topbar-sub">Histórico e gestão de boletos</div>{% endblock %}
+{% block page_title %}Cobranças{% endblock %}
+{% block page_subtitle %}<div class="topbar-sub">Histórico e gestão de cobranças</div>{% endblock %}
 {% block content %}
 
 <div class="card no-pad">
   <div class="card-h" style="padding:20px 20px 16px; margin:0; gap:12px; flex-wrap:wrap">
     <div>
-      <div class="card-title">Boletos</div>
+      <div class="card-title">Cobranças</div>
       <div class="card-sub">{{ boletos | length }} registro(s) — últimos 200</div>
     </div>
     <form method="GET" class="d-flex align-items-center gap-2">
@@ -18,12 +18,6 @@
         <option value="vencido"    {% if status_filtro=='vencido' %}selected{% endif %}>Vencidos</option>
         <option value="cancelado"  {% if status_filtro=='cancelado' %}selected{% endif %}>Cancelados</option>
       </select>
-      <form method="POST" action="{{ url_for('admin.financeiro_boletos_sincronizar') }}"
-            style="display:inline">
-        <button type="submit" class="btn btn-ghost btn-sm" title="Consultar status no Cora">
-          <i class="bi bi-arrow-clockwise"></i> Sincronizar
-        </button>
-      </form>
     </form>
   </div>
 
@@ -31,23 +25,31 @@
   <table class="table">
     <thead>
       <tr>
-        <th>ID Cora</th>
+        <th>Tipo</th>
         <th>Aluno</th>
         <th>Vencimento</th>
         <th class="text-end">Valor</th>
         <th>Status</th>
         <th>Pago em</th>
-        <th style="width:140px"></th>
+        <th style="width:180px"></th>
       </tr>
     </thead>
     <tbody>
       {% for b in boletos %}
       <tr>
-        <td><code style="font-size:11px">{{ b.cora_boleto_id or '—' }}</code></td>
+        <td>
+          {% if b.tipo_cobranca == 'pix_manual' %}
+          <span class="badge badge-info"><i class="bi bi-qr-code"></i> PIX</span>
+          {% elif b.tipo_cobranca == 'boleto_manual' %}
+          <span class="badge badge-info"><i class="bi bi-file-earmark-text"></i> Boleto</span>
+          {% else %}
+          <span class="badge"><i class="bi bi-bank"></i> Cora</span>
+          {% endif %}
+        </td>
         <td>
           {% if b.mensalidade %}
           <div class="fw-600">{{ b.mensalidade.aluno.nome }}</div>
-          <div class="dim" style="font-size:11px">{{ b.mensalidade.mes }}/{{ b.mensalidade.ano }}</div>
+          <div class="dim" style="font-size:11px">{{ '%02d' % b.mensalidade.mes }}/{{ b.mensalidade.ano }}</div>
           {% else %}
           <span class="dim">avulso</span>
           {% endif %}
@@ -70,24 +72,37 @@
         <td class="dim">{{ b.pago_em.strftime('%d/%m/%Y %H:%M') if b.pago_em else '—' }}</td>
         <td>
           <div class="table-actions">
-            {% if b.link_pdf %}
-            <a href="{{ b.link_pdf }}" target="_blank"
-               class="btn btn-ghost btn-sm" title="Baixar PDF">
+            {% if b.tipo_cobranca == 'boleto_manual' and b.linha_digitavel %}
+            <button type="button" class="btn btn-ghost btn-sm" title="Copiar linha digitável"
+                    onclick="navigator.clipboard.writeText({{ b.linha_digitavel | tojson }}); this.innerHTML='<i class=\'bi bi-check\'></i>'; setTimeout(()=>this.innerHTML='<i class=\'bi bi-clipboard\'></i>', 1500);">
+              <i class="bi bi-clipboard"></i>
+            </button>
+            {% endif %}
+            {% if b.tipo_cobranca == 'boleto_manual' and b.pdf_path %}
+            <a href="{{ url_for('static', filename='uploads/' + b.pdf_path) }}"
+               target="_blank" class="btn btn-ghost btn-sm" title="Abrir PDF">
               <i class="bi bi-file-earmark-pdf"></i>
             </a>
             {% endif %}
-            {% if b.status in ['aberto', 'vencido'] %}
+            {% if b.tipo_cobranca == 'pix_manual' and b.pix_copia_cola %}
+            <button type="button" class="btn btn-ghost btn-sm" title="Copiar código PIX"
+                    onclick="navigator.clipboard.writeText({{ b.pix_copia_cola | tojson }}); this.innerHTML='<i class=\'bi bi-check\'></i>'; setTimeout(()=>this.innerHTML='<i class=\'bi bi-clipboard\'></i>', 1500);">
+              <i class="bi bi-clipboard"></i>
+            </button>
+            {% endif %}
+
+            {% if b.status in ['aberto', 'vencido'] and current_user.tipo == 'admin' %}
             <form method="POST"
-                  action="{{ url_for('admin.financeiro_cora_simular_pagamento', boleto_id=b.id) }}"
+                  action="{{ url_for('admin.financeiro_cobranca_pago', id=b.id) }}"
                   style="display:inline">
               <button type="submit" class="btn btn-ghost btn-sm"
-                      title="Simular pagamento (mock)">
-                <i class="bi bi-check2-square"></i>
+                      title="Marcar como pago" style="color:var(--ok)">
+                <i class="bi bi-check2-circle"></i>
               </button>
             </form>
             <form method="POST"
                   action="{{ url_for('admin.financeiro_boleto_cancelar', id=b.id) }}"
-                  onsubmit="return confirm('Cancelar boleto?')"
+                  onsubmit="return confirm('Cancelar cobrança?')"
                   style="display:inline">
               <button type="submit" class="btn btn-ghost btn-sm"
                       title="Cancelar" style="color:var(--bad)">
@@ -104,7 +119,7 @@
   {% else %}
   <div class="empty-state">
     <i class="bi bi-receipt"></i>
-    <p>Nenhum boleto encontrado{% if status_filtro %} com esse status{% endif %}.</p>
+    <p>Nenhuma cobrança encontrada{% if status_filtro %} com esse status{% endif %}.</p>
   </div>
   {% endif %}
 </div>

@@ -1,29 +1,32 @@
 {% extends 'base.html' %}
-{% block page_title %}Turmas{% endblock %}
+{% block page_title %}{{ turma.nome }}{% endblock %}
+{% block page_subtitle %}<div class="topbar-sub">Detalhes da turma</div>{% endblock %}
 {% block content %}
 
-<div class="page-header">
-  <h2>Turmas</h2>
-  <p>Gerencie as turmas, alunos vinculados e os encontros previstos</p>
+<div class="d-flex gap-2 mb-3">
+  <a href="{{ url_for('admin.turmas') }}" class="btn btn-ghost btn-sm">
+    <i class="bi bi-arrow-left"></i> Voltar
+  </a>
 </div>
 
 <div class="row g-4">
-
-  <!-- Formulário de criação -->
-  {% if pode('turma.criar') %}
-  <div class="col-lg-5">
+  <!-- Coluna 1: ficha + encontros (editar) -->
+  {% if pode('turma.editar') %}
+  <div class="col-lg-5" id="editar">
     <div class="card">
-      <div class="card-header"><i class="bi bi-plus-circle-fill me-2"></i>Nova turma</div>
+      <div class="card-header"><i class="bi bi-pencil-square me-2"></i>Editar turma</div>
       <div class="card-body">
-        <form method="POST" action="{{ url_for('admin.turmas') }}" class="encontros-form">
+        <form method="POST" action="{{ url_for('admin.editar_turma', id=turma.id) }}"
+              class="encontros-form"
+              data-encontros='{{ turma.encontros | map(attribute="data") | map("string") | list | tojson }}'>
           <div class="mb-3">
             <label class="form-label">Nome da turma</label>
-            <input class="form-control" name="nome" placeholder="Ex: 3º Ano A" required>
+            <input class="form-control" name="nome" value="{{ turma.nome }}" required>
           </div>
 
           <div class="mb-3">
             <label class="form-label d-flex justify-content-between align-items-end">
-              <span>Encontros previstos <small class="text-muted">(opcional)</small></span>
+              <span>Encontros previstos</span>
               <small class="text-muted">
                 <span class="encontros-count">0</span> data(s)
               </small>
@@ -48,12 +51,12 @@
             </div>
             <div class="encontros-list"></div>
             <button type="button" class="btn btn-sm btn-outline-secondary mt-2 btn-add-encontro">
-              <i class="bi bi-plus-lg me-1"></i>Adicionar data manualmente
+              <i class="bi bi-plus-lg me-1"></i>Adicionar data
             </button>
           </div>
 
           <button type="submit" class="btn btn-primary w-100">
-            <i class="bi bi-plus-circle me-1"></i> Criar turma
+            <i class="bi bi-floppy me-1"></i>Salvar alterações
           </button>
         </form>
       </div>
@@ -61,78 +64,83 @@
   </div>
   {% endif %}
 
-  <!-- Tabela -->
-  <div class="{% if pode('turma.criar') %}col-lg-7{% else %}col-12{% endif %}">
+  <!-- Coluna 2: alunos da turma -->
+  <div class="{% if pode('turma.editar') %}col-lg-7{% else %}col-12{% endif %}">
     <div class="card">
       <div class="card-header d-flex justify-content-between align-items-center">
-        <span><i class="bi bi-collection-fill me-2"></i>Turmas cadastradas</span>
-        <span class="badge bg-secondary">{{ turmas | length }}</span>
+        <span><i class="bi bi-people-fill me-2"></i>Alunos da turma</span>
+        <span class="badge bg-secondary">{{ alunos | length }}</span>
       </div>
       <div class="card-body p-0">
-        {% if turmas %}
+        {% if alunos %}
         <table class="table mb-0">
           <thead>
             <tr>
-              <th>Nome</th>
-              <th class="text-center">Alunos</th>
-              <th class="text-center">Encontros</th>
-              <th style="width:140px"></th>
+              <th>Aluno</th>
+              <th class="text-center">Idade</th>
+              <th>Status</th>
+              <th class="text-end"></th>
             </tr>
           </thead>
           <tbody>
-            {% for t in turmas %}
+            {% for a in alunos %}
             <tr>
-              <td><i class="bi bi-collection me-2 text-muted"></i>{{ t.nome }}</td>
-              <td class="text-center">
-                <span class="badge badge-professor">{{ t.alunos | length }}</span>
-              </td>
-              <td class="text-center">
-                {% if t.encontros %}
-                  <span class="badge badge-responsavel">{{ t.encontros | length }}</span>
-                {% else %}
-                  <span class="text-muted small">—</span>
-                {% endif %}
-              </td>
               <td>
-                <div class="table-actions">
-                  <a href="{{ url_for('admin.turma_detalhe', id=t.id) }}"
-                     class="btn btn-sm btn-outline-secondary" title="Ver detalhes">
-                    <i class="bi bi-eye"></i>
-                  </a>
-                  {% if pode('turma.editar') %}
-                  <a href="{{ url_for('admin.turma_detalhe', id=t.id) }}#editar"
-                     class="btn btn-sm btn-outline-primary" title="Editar">
-                    <i class="bi bi-pencil"></i>
-                  </a>
-                  {% endif %}
-                  {% if pode('turma.excluir') %}
-                  <form method="POST" action="{{ url_for('admin.excluir_turma', id=t.id) }}"
-                        onsubmit="return confirm('Excluir turma {{ t.nome }}?')">
-                    <button type="submit" class="btn btn-sm btn-danger">
-                      <i class="bi bi-trash"></i>
-                    </button>
-                  </form>
-                  {% endif %}
+                <div class="d-flex align-items-center gap-2">
+                  <div class="avatar-sm">{{ a.nome[0].upper() }}</div>
+                  <div>
+                    <div class="fw-600">{{ a.nome }}</div>
+                    <div class="dim" style="font-size:11.5px">
+                      matrícula #{{ '%04d' % a.id }}
+                    </div>
+                  </div>
                 </div>
+              </td>
+              <td class="text-center dim">{{ a.idade }} anos</td>
+              <td>
+                {% set st = a.status or 'ativo' %}
+                {% set cls = {'ativo':'badge-ok','evadido':'badge-warn','formado':'badge-primary'} %}
+                <span class="badge {{ cls.get(st, '') }}">{{ st|capitalize }}</span>
+              </td>
+              <td class="text-end">
+                <a href="{{ url_for('admin.alunos') }}#aluno-{{ a.id }}"
+                   class="btn btn-sm btn-ghost" title="Abrir cadastro">
+                  <i class="bi bi-box-arrow-up-right"></i>
+                </a>
               </td>
             </tr>
             {% endfor %}
           </tbody>
         </table>
         {% else %}
-        <div class="text-center py-5 text-muted">
-          <i class="bi bi-collection" style="font-size:2rem; opacity:0.3"></i>
-          <p class="mt-2 mb-0">Nenhuma turma cadastrada ainda.</p>
+        <div class="empty-state">
+          <i class="bi bi-person-x"></i>
+          <p>Nenhum aluno vinculado a esta turma ainda.</p>
         </div>
         {% endif %}
       </div>
     </div>
-  </div>
 
+    {% if turma.encontros %}
+    <div class="card mt-3">
+      <div class="card-header">
+        <i class="bi bi-calendar3 me-2"></i>Encontros programados
+      </div>
+      <div class="card-body">
+        <div class="d-flex flex-wrap gap-2">
+          {% for e in turma.encontros %}
+            <span class="badge badge-primary">
+              {{ e.data.strftime('%d/%m/%Y') }}
+            </span>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    {% endif %}
+  </div>
 </div>
 
 <script>
-// Inicializa os controles de encontros em cada form que use a classe .encontros-form
 (function () {
   function initForm(form) {
     const lista = form.querySelector('.encontros-list');
@@ -185,7 +193,6 @@
       }
     });
 
-    // Datas pré-existentes (modo edição) — vêm em data-encontros JSON
     if (form.dataset.encontros) {
       try {
         const arr = JSON.parse(form.dataset.encontros);

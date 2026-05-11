@@ -7,6 +7,26 @@
   <p>Selecione a turma e disciplina para iniciar o lançamento</p>
 </div>
 
+{% if sem_vinculo %}
+<div class="alert alert-warning">
+  <i class="bi bi-exclamation-triangle me-1"></i>
+  Seu usuário ainda não está vinculado a um registro de professor. Peça ao
+  administrador para fazer o vínculo em <code>/admin/professores</code>.
+</div>
+{% elif not turmas %}
+<div class="alert alert-info">
+  <i class="bi bi-info-circle me-1"></i>
+  Nenhuma turma foi atribuída a você ainda. Peça ao administrador para vincular
+  uma ou mais turmas ao seu cadastro.
+</div>
+{% elif not disciplinas %}
+<div class="alert alert-info">
+  <i class="bi bi-info-circle me-1"></i>
+  Nenhuma disciplina foi atribuída a você. Peça ao administrador para vincular
+  pelo menos uma disciplina em <code>/admin/professores</code>.
+</div>
+{% endif %}
+
 <!-- Filtros -->
 <div class="card mb-4">
   <div class="card-body">

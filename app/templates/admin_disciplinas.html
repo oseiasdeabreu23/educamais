@@ -10,6 +10,7 @@
 <div class="row g-4">
 
   <!-- Formulário -->
+  {% if pode('disciplina.criar') %}
   <div class="col-lg-4">
     <div class="card">
       <div class="card-header"><i class="bi bi-book-fill me-2"></i>Nova Disciplina</div>
@@ -26,9 +27,10 @@
       </div>
     </div>
   </div>
+  {% endif %}
 
   <!-- Tabela -->
-  <div class="col-lg-8">
+  <div class="{% if pode('disciplina.criar') %}col-lg-8{% else %}col-12{% endif %}">
     <div class="card">
       <div class="card-header d-flex justify-content-between align-items-center">
         <span><i class="bi bi-book-fill me-2"></i>Disciplinas cadastradas</span>

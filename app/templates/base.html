@@ -26,10 +26,13 @@
 
   {% set role_label =
     'Administrador'  if current_user.tipo == 'admin'
+    else 'Coordenador' if current_user.tipo == 'coordenador'
+    else 'Gestor' if current_user.tipo == 'gestor'
     else 'Professor' if current_user.tipo == 'professor'
     else 'Aluno'     if current_user.tipo == 'aluno'
     else 'Responsável'
   %}
+  {% set is_admin_like = current_user.tipo in ('admin', 'coordenador', 'gestor') %}
 
   <aside class="sidebar" id="sidebar">
     <a class="sidebar-brand" href="#">
@@ -48,7 +51,8 @@
     </a>
 
     <nav class="sidebar-nav">
-      {% if current_user.tipo == 'admin' %}
+      {% if is_admin_like %}
+        {% if pode('dashboard.ver') %}
         <div class="nav-section">
           <div class="nav-label">Principal</div>
           <a class="nav-item {% if request.endpoint == 'admin.dashboard' %}active{% endif %}"
@@ -57,36 +61,50 @@
             <span>Dashboard</span>
           </a>
         </div>
+        {% endif %}
 
+        {% if pode('aluno.ver') or pode('turma.ver') or pode('disciplina.ver') or pode('professor.ver') or pode('responsavel.ver') %}
         <div class="nav-section">
           <div class="nav-label">Cadastros</div>
+          {% if pode('aluno.ver') %}
           <a class="nav-item {% if request.endpoint == 'admin.alunos' %}active{% endif %}"
              href="{{ url_for('admin.alunos') }}">
             <span class="nav-icon"><i class="bi bi-person-fill"></i></span>
             <span>Alunos</span>
           </a>
-          <a class="nav-item {% if request.endpoint == 'admin.turmas' %}active{% endif %}"
+          {% endif %}
+          {% if pode('turma.ver') %}
+          <a class="nav-item {% if request.endpoint in ('admin.turmas','admin.turma_detalhe') %}active{% endif %}"
              href="{{ url_for('admin.turmas') }}">
             <span class="nav-icon"><i class="bi bi-people-fill"></i></span>
             <span>Turmas</span>
           </a>
+          {% endif %}
+          {% if pode('disciplina.ver') %}
           <a class="nav-item {% if request.endpoint == 'admin.disciplinas' %}active{% endif %}"
              href="{{ url_for('admin.disciplinas') }}">
             <span class="nav-icon"><i class="bi bi-book-fill"></i></span>
             <span>Disciplinas</span>
           </a>
+          {% endif %}
+          {% if pode('professor.ver') %}
           <a class="nav-item {% if request.endpoint == 'admin.professores' %}active{% endif %}"
              href="{{ url_for('admin.professores') }}">
             <span class="nav-icon"><i class="bi bi-mortarboard-fill"></i></span>
             <span>Professores</span>
           </a>
+          {% endif %}
+          {% if pode('responsavel.ver') %}
           <a class="nav-item {% if request.endpoint == 'admin.responsaveis' %}active{% endif %}"
              href="{{ url_for('admin.responsaveis') }}">
             <span class="nav-icon"><i class="bi bi-heart-fill"></i></span>
             <span>Responsáveis</span>
           </a>
+          {% endif %}
         </div>
+        {% endif %}
 
+        {% if pode('curso.ver') %}
         <div class="nav-section">
           <div class="nav-label">Cursos</div>
           <a class="nav-item {% if request.endpoint in ('admin.cursos','admin.curso_detalhe') %}active{% endif %}"
@@ -95,7 +113,9 @@
             <span>Cursos online</span>
           </a>
         </div>
+        {% endif %}
 
+        {% if pode('financeiro.ver') %}
         <div class="nav-section">
           <div class="nav-label">Financeiro</div>
           <a class="nav-item {% if request.endpoint == 'admin.financeiro' %}active{% endif %}"
@@ -124,7 +144,9 @@
             <span>Fluxo de caixa</span>
           </a>
         </div>
+        {% endif %}
 
+        {% if current_user.tipo == 'admin' %}
         <div class="nav-section">
           <div class="nav-label">Sistema</div>
           <a class="nav-item {% if request.endpoint == 'admin.usuarios' %}active{% endif %}"
@@ -143,6 +165,7 @@
             <span>Configurações</span>
           </a>
         </div>
+        {% endif %}
 
       {% elif current_user.tipo == 'professor' %}
         <div class="nav-section">
@@ -229,6 +252,7 @@
         <i class="bi bi-box-arrow-left"></i>
         <span>Sair</span>
       </a>
+      <div class="sidebar-version">v{{ versao_sistema }}</div>
     </div>
   </aside>
 

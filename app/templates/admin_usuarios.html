@@ -68,13 +68,22 @@
             </small>
           </div>
 
-          <div class="mb-3">
-            <button type="button" class="btn btn-outline-secondary btn-sm w-100"
-                    onclick="liberarManual()">
-              <i class="bi bi-plus-circle me-1"></i> Criar acesso manual de Professor
+          <div class="mb-3 d-grid gap-2">
+            <button type="button" class="btn btn-outline-secondary btn-sm"
+                    onclick="liberarManual('professor')">
+              <i class="bi bi-mortarboard me-1"></i> Criar acesso manual de Professor
+            </button>
+            <button type="button" class="btn btn-outline-secondary btn-sm"
+                    onclick="liberarManual('coordenador')">
+              <i class="bi bi-clipboard-check me-1"></i> Criar acesso de Coordenador
+            </button>
+            <button type="button" class="btn btn-outline-secondary btn-sm"
+                    onclick="liberarManual('gestor')">
+              <i class="bi bi-graph-up me-1"></i> Criar acesso de Gestor
             </button>
             <small class="text-muted d-block mt-1">
-              Cria o User e o registro Professor de uma vez (use só se não cadastrou em /admin/professores).
+              Coordenador pode cadastrar alunos/profs/responsáveis e emitir cobranças, mas
+              não editar nem excluir. Gestor é só leitura (dashboards e relatórios).
             </small>
           </div>
 
@@ -137,6 +146,10 @@
                   <span class="badge badge-professor">Professor</span>
                 {% elif u.tipo == 'aluno' %}
                   <span class="badge bg-info text-dark">Aluno</span>
+                {% elif u.tipo == 'coordenador' %}
+                  <span class="badge" style="background:rgba(245,158,11,.15); color:#b45309">Coordenador</span>
+                {% elif u.tipo == 'gestor' %}
+                  <span class="badge" style="background:rgba(99,102,241,.15); color:#4338ca">Gestor</span>
                 {% else %}
                   <span class="badge badge-responsavel">Responsável</span>
                 {% endif %}
@@ -249,7 +262,7 @@ function preencherDados(select) {
   if (!partes[2]) email.focus();
 }
 
-function liberarManual() {
+function liberarManual(tipoSel) {
   const select = document.getElementById('selectCadastro');
   const nome = document.getElementById('inputNome');
   const email = document.getElementById('inputEmail');
@@ -260,7 +273,7 @@ function liberarManual() {
 
   select.value = '';
   select.required = false;
-  tipo.value = 'professor';
+  tipo.value = tipoSel || 'professor';
   alunoId.value = '';
   profId.value = '';
   nome.value = '';

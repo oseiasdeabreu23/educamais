@@ -7,9 +7,11 @@
     <h2>Cursos</h2>
     <p>Gerencie os cursos disponíveis e as matrículas dos alunos</p>
   </div>
+  {% if pode('curso.criar') %}
   <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#modalNovoCurso">
     <i class="bi bi-plus-circle me-1"></i> Novo Curso
   </button>
+  {% endif %}
 </div>
 
 {% if cursos %}
@@ -53,9 +55,11 @@
           <td>
             <div class="table-actions">
               <a href="{{ url_for('admin.curso_detalhe', curso_id=c.id) }}"
-                 class="btn btn-sm btn-outline-primary">
-                <i class="bi bi-pencil"></i>
+                 class="btn btn-sm btn-outline-primary"
+                 title="{% if pode('curso.editar') %}Editar{% else %}Ver{% endif %}">
+                <i class="bi bi-{% if pode('curso.editar') %}pencil{% else %}eye{% endif %}"></i>
               </a>
+              {% if pode('curso.excluir') %}
               <form method="POST"
                     action="{{ url_for('admin.excluir_curso', curso_id=c.id) }}"
                     onsubmit="return confirm('Excluir o curso &quot;{{ c.titulo }}&quot; e todos os seus módulos/vídeos?')">
@@ -63,6 +67,7 @@
                   <i class="bi bi-trash"></i>
                 </button>
               </form>
+              {% endif %}
             </div>
           </td>
         </tr>
@@ -77,10 +82,12 @@
   <div class="card-body text-center py-5 text-muted">
     <i class="bi bi-play-circle" style="font-size:3rem;opacity:0.3"></i>
     <p class="mt-3 mb-1">Nenhum curso cadastrado ainda.</p>
+    {% if pode('curso.criar') %}
     <button class="btn btn-primary mt-2"
             data-bs-toggle="modal" data-bs-target="#modalNovoCurso">
       <i class="bi bi-plus-circle me-1"></i> Criar primeiro curso
     </button>
+    {% endif %}
   </div>
 </div>
 {% endif %}

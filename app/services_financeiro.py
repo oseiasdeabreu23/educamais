@@ -182,8 +182,12 @@ def emitir_boleto(mensalidade):
 
 
 def cancelar_boleto(boleto):
-    """Cancela um boleto no Cora e atualiza status local."""
-    if not boleto.cora_boleto_id:
+    """Cancela um boleto e atualiza status local.
+
+    Para boletos manuais (boleto_manual/pix_manual) só atualiza o status.
+    Para boletos do Cora chama a API.
+    """
+    if boleto.tipo_cobranca in ('boleto_manual', 'pix_manual') or not boleto.cora_boleto_id:
         boleto.status = 'cancelado'
         db.session.commit()
         return True
@@ -193,6 +197,159 @@ def cancelar_boleto(boleto):
         boleto.status = 'cancelado'
         db.session.commit()
     return ok
+
+
+# --------------------------------------------------------------------------- #
+# Cobrança manual (boleto colado ou PIX copia-e-cola)
+# --------------------------------------------------------------------------- #
+def registrar_cobranca_manual(mensalidade, tipo, linha_digitavel=None,
+                              pix_copia_cola=None, pdf_path=None):
+    """Cria um Boleto manual vinculado a uma mensalidade, sem chamar Cora.
+
+    Args:
+        mensalidade: instância de :class:`Mensalidade`.
+        tipo: ``'boleto_manual'`` ou ``'pix_manual'``.
+        linha_digitavel: obrigatória se ``tipo='boleto_manual'``.
+        pix_copia_cola: obrigatório se ``tipo='pix_manual'``.
+        pdf_path: caminho relativo do PDF do boleto (opcional, só pra boleto_manual).
+
+    Returns:
+        :class:`Boleto` recém-criado.
+
+    Raises:
+        ValueError: se tipo inválido ou faltarem campos obrigatórios.
+    """
+    if tipo not in ('boleto_manual', 'pix_manual'):
+        raise ValueError(f'tipo de cobrança inválido: {tipo}')
+    if tipo == 'boleto_manual' and not (linha_digitavel or '').strip():
+        raise ValueError('Linha digitável é obrigatória para boleto manual.')
+    if tipo == 'pix_manual' and not (pix_copia_cola or '').strip():
+        raise ValueError('Código PIX copia-e-cola é obrigatório.')
+
+    boleto = Boleto(
+        mensalidade_id=mensalidade.id,
+        tipo_cobranca=tipo,
+        status='aberto',
+        valor=mensalidade.valor,
+        vencimento=mensalidade.vencimento,
+        linha_digitavel=(linha_digitavel or '').strip() or None,
+        pix_copia_cola=(pix_copia_cola or '').strip() or None,
+        pdf_path=pdf_path,
+    )
+    db.session.add(boleto)
+    db.session.commit()
+    return boleto
+
+
+def marcar_cobranca_paga(boleto, pago_em=None):
+    """Marca uma cobrança manual como paga e gera entrada no fluxo.
+
+    Wrapper em torno de :func:`registrar_pagamento_boleto` pra manter a
+    nomenclatura consistente nas rotas manuais.
+    """
+    return registrar_pagamento_boleto(boleto, pago_em=pago_em)
+
+
+# --------------------------------------------------------------------------- #
+# Cobrança via Mercado Pago
+# --------------------------------------------------------------------------- #
+def _montar_pagador_mp(mensalidade):
+    """Extrai dict pagador a partir do aluno/responsável da mensalidade.
+
+    Aluno é sempre o pagador (tem CPF e endereço completo no cadastro v2).
+    Email e nome do responsável são usados quando há um.
+    """
+    aluno = mensalidade.aluno
+    resp = mensalidade.responsavel
+    nome = (resp.nome if resp else aluno.nome) or 'Pagador'
+    partes = nome.strip().split(' ', 1)
+    first = partes[0]
+    last = partes[1] if len(partes) > 1 else ''
+    email = (resp.email if resp and resp.email else None) or ''
+    return {
+        'nome': nome,
+        'first_name': first,
+        'last_name': last,
+        'email': email,
+        'cpf': aluno.cpf or '',
+        'cep': aluno.cep or '',
+        'logradouro': aluno.logradouro or '',
+        'numero': aluno.numero or '',
+        'bairro': aluno.bairro or '',
+        'cidade': aluno.cidade or '',
+        'uf': aluno.uf or '',
+    }
+
+
+def emitir_cobranca_mp(mensalidade, tipo):
+    """Cria pagamento no Mercado Pago e persiste como Boleto local.
+
+    Args:
+        mensalidade: instância de :class:`Mensalidade`.
+        tipo: ``'pix'`` ou ``'boleto'``.
+
+    Returns:
+        :class:`Boleto` recém-criado.
+
+    Raises:
+        ValueError: tipo inválido.
+        MercadoPagoError: erro de configuração ou da API do MP.
+    """
+    from app.services_mercadopago import get_mp_client, MercadoPagoError  # noqa: F401
+
+    if tipo not in ('pix', 'boleto'):
+        raise ValueError(f"tipo MP inválido: {tipo} (use 'pix' ou 'boleto')")
+
+    client = get_mp_client()
+    pagador = _montar_pagador_mp(mensalidade)
+    descricao = (f'Mensalidade {mensalidade.mes:02d}/{mensalidade.ano} '
+                 f'— {mensalidade.aluno.nome}')
+
+    if tipo == 'pix':
+        res = client.criar_pagamento_pix(
+            valor=mensalidade.valor,
+            descricao=descricao,
+            pagador=pagador,
+            vencimento=mensalidade.vencimento,
+        )
+        boleto = Boleto(
+            mensalidade_id=mensalidade.id,
+            tipo_cobranca='mp_pix',
+            status='aberto',
+            valor=mensalidade.valor,
+            vencimento=mensalidade.vencimento,
+            mp_payment_id=res['payment_id'],
+            pix_copia_cola=res['copia_cola'] or None,
+            link_boleto=res['ticket_url'] or None,
+        )
+    else:
+        res = client.criar_pagamento_boleto(
+            valor=mensalidade.valor,
+            descricao=descricao,
+            pagador=pagador,
+            vencimento=mensalidade.vencimento,
+        )
+        boleto = Boleto(
+            mensalidade_id=mensalidade.id,
+            tipo_cobranca='mp_boleto',
+            status='aberto',
+            valor=mensalidade.valor,
+            vencimento=mensalidade.vencimento,
+            mp_payment_id=res['payment_id'],
+            linha_digitavel=res['linha_digitavel'] or None,
+            link_pdf=res['pdf_url'] or None,
+        )
+
+    db.session.add(boleto)
+    db.session.commit()
+    return boleto
+
+
+def boleto_por_mp_payment_id(payment_id):
+    """Busca o Boleto local correspondente a um payment do MP."""
+    if not payment_id:
+        return None
+    return Boleto.query.filter_by(mp_payment_id=str(payment_id)).first()
 
 
 def registrar_pagamento_boleto(boleto, pago_em=None):

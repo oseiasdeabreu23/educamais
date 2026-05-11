@@ -10,6 +10,7 @@
 <div class="row g-4">
 
   <!-- Formulário -->
+  {% if pode('professor.criar') %}
   <div class="col-lg-4">
     <div class="card">
       <div class="card-header"><i class="bi bi-person-video3 me-2"></i>Novo Professor</div>
@@ -20,13 +21,24 @@
             <input class="form-control" name="nome" placeholder="Ex: Carlos Pereira" required>
           </div>
           <div class="mb-3">
-            <label class="form-label">Turma responsável</label>
-            <select class="form-select" name="turma_id">
-              <option value="">Sem turma</option>
+            <label class="form-label">
+              Turmas que leciona
+              <small class="text-muted">(marque uma ou mais)</small>
+            </label>
+            {% if turmas %}
+            <div class="border rounded p-2" style="max-height:180px; overflow-y:auto">
               {% for t in turmas %}
-              <option value="{{ t.id }}">{{ t.nome }}</option>
+              <label class="d-flex align-items-center gap-2" style="cursor:pointer; padding:4px 0">
+                <input type="checkbox" name="turma_ids" value="{{ t.id }}">
+                <span>{{ t.nome }}</span>
+              </label>
               {% endfor %}
-            </select>
+            </div>
+            {% else %}
+            <div class="text-muted small p-2 border rounded">
+              Nenhuma turma cadastrada ainda.
+            </div>
+            {% endif %}
           </div>
           <div class="mb-3">
             <label class="form-label">
@@ -67,9 +79,10 @@
       </div>
     </div>
   </div>
+  {% endif %}
 
   <!-- Tabela -->
-  <div class="col-lg-8">
+  <div class="{% if pode('professor.criar') %}col-lg-8{% else %}col-12{% endif %}">
     <div class="card">
       <div class="card-header d-flex justify-content-between align-items-center">
         <span><i class="bi bi-people-fill me-2"></i>Professores cadastrados</span>
@@ -99,7 +112,11 @@
                 </div>
               </td>
               <td>
-                {% if p.turma %}
+                {% if p.turmas %}
+                  {% for t in p.turmas %}
+                    <span class="badge badge-responsavel">{{ t.nome }}</span>
+                  {% endfor %}
+                {% elif p.turma %}
                   <span class="badge badge-responsavel">{{ p.turma.nome }}</span>
                 {% else %}
                   <span class="text-muted">—</span>
@@ -123,17 +140,21 @@
               </td>
               <td>
                 <div class="table-actions">
+                  {% if pode('professor.editar') %}
                   <button class="btn btn-sm btn-outline-primary"
                           data-bs-toggle="modal"
                           data-bs-target="#editModal{{ p.id }}">
                     <i class="bi bi-pencil"></i>
                   </button>
+                  {% endif %}
+                  {% if pode('professor.excluir') %}
                   <form method="POST" action="{{ url_for('admin.excluir_professor', id=p.id) }}"
                         onsubmit="return confirm('Excluir professor {{ p.nome }}?')">
                     <button type="submit" class="btn btn-sm btn-danger">
                       <i class="bi bi-trash"></i>
                     </button>
                   </form>
+                  {% endif %}
                 </div>
               </td>
             </tr>
@@ -153,15 +174,20 @@
                         <input class="form-control" name="nome" value="{{ p.nome }}" required>
                       </div>
                       <div class="mb-3">
-                        <label class="form-label">Turma responsável</label>
-                        <select class="form-select" name="turma_id">
-                          <option value="">Sem turma</option>
+                        <label class="form-label">
+                          Turmas que leciona
+                          <small class="text-muted">(uma ou mais)</small>
+                        </label>
+                        {% set turmas_ids_atuais = p.turmas | map(attribute='id') | list %}
+                        <div class="border rounded p-2" style="max-height:180px; overflow-y:auto">
                           {% for t in turmas %}
-                          <option value="{{ t.id }}" {% if p.turma_id == t.id %}selected{% endif %}>
-                            {{ t.nome }}
-                          </option>
+                          <label class="d-flex align-items-center gap-2" style="cursor:pointer; padding:4px 0">
+                            <input type="checkbox" name="turma_ids" value="{{ t.id }}"
+                                   {% if t.id in turmas_ids_atuais %}checked{% endif %}>
+                            <span>{{ t.nome }}</span>
+                          </label>
                           {% endfor %}
-                        </select>
+                        </div>
                       </div>
                       <div class="mb-3">
                         <label class="form-label">

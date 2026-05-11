@@ -1,7 +1,8 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, Response
 from flask_login import login_required, current_user
 from app import db
-from app.models import Aluno, Disciplina, Nota, Frequencia, Atividade, Observacao, Professor, Turma
+from app.models import (Aluno, Disciplina, Nota, Frequencia, Atividade, Observacao,
+                        Professor, Turma)
 from app.services import media_aluno, queda_desempenho, stats_frequencia, alertas_frequencia
 from datetime import date as date_type
 import csv, io
@@ -22,6 +23,25 @@ def professor_required(func):
     return wrapper
 
 
+def _professor_atual():
+    """Retorna o Professor vinculado ao usuário logado (ou None)."""
+    if not current_user.is_authenticated:
+        return None
+    return Professor.query.filter_by(user_id=current_user.id).first()
+
+
+def _turmas_do_professor(professor):
+    """Turmas que o professor leciona. Usa a relação N:N e cai no
+    campo legado turma_id se a N:N estiver vazia (dados antigos)."""
+    if not professor:
+        return []
+    if professor.turmas:
+        return sorted(professor.turmas, key=lambda t: t.nome)
+    if professor.turma:
+        return [professor.turma]
+    return []
+
+
 @professor_bp.route('/dashboard')
 @login_required
 @professor_required
@@ -39,11 +59,21 @@ ANOS_DISPONIVEIS = list(range(ANO_ATUAL - 2, ANO_ATUAL + 3))
 @login_required
 @professor_required
 def lancar_nota():
+    professor = _professor_atual()
+    turmas = _turmas_do_professor(professor)
+    disciplinas = sorted(professor.disciplinas, key=lambda d: d.nome) if professor else []
+    turmas_ids_validas = {t.id for t in turmas}
+    disciplinas_ids_validas = {d.id for d in disciplinas}
+
     if request.method == 'POST':
-        disciplina_id = request.form.get('disciplina_id')
-        turma_id      = request.form.get('turma_id')
+        disciplina_id = request.form.get('disciplina_id', type=int)
+        turma_id      = request.form.get('turma_id', type=int)
         ano           = int(request.form.get('ano', ANO_ATUAL))
         aluno_ids     = request.form.getlist('aluno_ids')
+
+        if turma_id not in turmas_ids_validas or disciplina_id not in disciplinas_ids_validas:
+            flash('Você não tem permissão para lançar notas nessa turma/disciplina.', 'danger')
+            return redirect(url_for('professor.lancar_nota'))
 
         for aluno_id in aluno_ids:
             for mes in range(1, 13):
@@ -74,11 +104,14 @@ def lancar_nota():
     disciplina_id = request.args.get('disciplina_id', type=int)
     ano           = request.args.get('ano', ANO_ATUAL, type=int)
 
-    turmas     = Turma.query.order_by(Turma.nome).all()
-    disciplinas = Disciplina.query.order_by(Disciplina.nome).all()
+    # Auto-seleção quando o professor tem só 1 turma/disciplina
+    if not turma_id and len(turmas) == 1:
+        turma_id = turmas[0].id
+    if not disciplina_id and len(disciplinas) == 1:
+        disciplina_id = disciplinas[0].id
 
     alunos_data = []
-    if turma_id and disciplina_id:
+    if (turma_id in turmas_ids_validas and disciplina_id in disciplinas_ids_validas):
         alunos = (Aluno.query
                   .filter_by(turma_id=turma_id, status='ativo')
                   .order_by(Aluno.nome).all())
@@ -100,7 +133,8 @@ def lancar_nota():
                            turmas=turmas, disciplinas=disciplinas,
                            turma_id=turma_id, disciplina_id=disciplina_id,
                            ano=ano, anos=ANOS_DISPONIVEIS,
-                           alunos_data=alunos_data, meses=MESES)
+                           alunos_data=alunos_data, meses=MESES,
+                           sem_vinculo=(professor is None))
 
 
 @professor_bp.route('/notas/exportar')
@@ -150,14 +184,21 @@ def exportar_notas():
 @login_required
 @professor_required
 def registrar_frequencia():
-    turmas      = Turma.query.order_by(Turma.nome).all()
-    disciplinas = Disciplina.query.order_by(Disciplina.nome).all()
+    professor = _professor_atual()
+    turmas = _turmas_do_professor(professor)
+    disciplinas = sorted(professor.disciplinas, key=lambda d: d.nome) if professor else []
+    turmas_ids_validas = {t.id for t in turmas}
+    disciplinas_ids_validas = {d.id for d in disciplinas}
 
     if request.method == 'POST':
-        turma_id      = request.form.get('turma_id')
-        disciplina_id = request.form.get('disciplina_id')
+        turma_id      = request.form.get('turma_id', type=int)
+        disciplina_id = request.form.get('disciplina_id', type=int)
         data_str      = request.form.get('data')
         aluno_ids     = request.form.getlist('aluno_ids')
+
+        if turma_id not in turmas_ids_validas or disciplina_id not in disciplinas_ids_validas:
+            flash('Você não tem permissão para registrar frequência nessa turma/disciplina.', 'danger')
+            return redirect(url_for('professor.registrar_frequencia'))
 
         try:
             data_freq = date_type.fromisoformat(data_str)
@@ -184,15 +225,36 @@ def registrar_frequencia():
 
     turma_id      = request.args.get('turma_id', type=int)
     disciplina_id = request.args.get('disciplina_id', type=int)
-    data_str      = request.args.get('data', date_type.today().isoformat())
+    data_str      = request.args.get('data', '')
+
+    if not turma_id and len(turmas) == 1:
+        turma_id = turmas[0].id
+    if not disciplina_id and len(disciplinas) == 1:
+        disciplina_id = disciplinas[0].id
+
+    # Datas-encontro configuradas pelo admin para a turma selecionada
+    turma_obj = next((t for t in turmas if t.id == turma_id), None) if turma_id else None
+    encontros = list(turma_obj.encontros) if turma_obj else []
+    encontros_datas = [e.data for e in encontros]
+
+    # Se o professor ainda não escolheu uma data e a turma tem encontros,
+    # auto-seleciona o próximo encontro futuro (ou o mais recente passado)
+    hoje = date_type.today()
+    if not data_str and encontros_datas:
+        futuros = [d for d in encontros_datas if d >= hoje]
+        escolhida = futuros[0] if futuros else encontros_datas[-1]
+        data_str = escolhida.isoformat()
+    if not data_str:
+        data_str = hoje.isoformat()
 
     try:
         data_freq = date_type.fromisoformat(data_str)
     except ValueError:
         data_freq = date_type.today()
+        data_str = data_freq.isoformat()
 
     alunos_data = []
-    if turma_id and disciplina_id:
+    if (turma_id in turmas_ids_validas and disciplina_id in disciplinas_ids_validas):
         alunos = (Aluno.query
                   .filter_by(turma_id=turma_id, status='ativo')
                   .order_by(Aluno.nome).all())
@@ -208,7 +270,6 @@ def registrar_frequencia():
                 'alertas':      alt,
             })
 
-    # totais da turma para o relatório
     total_presencas    = sum(1 for a in alunos_data if a['status_hoje'] == 'presente')
     total_faltas       = sum(1 for a in alunos_data if a['status_hoje'] == 'falta')
     total_justificadas = sum(1 for a in alunos_data if a['status_hoje'] == 'justificada')
@@ -218,11 +279,13 @@ def registrar_frequencia():
                            turmas=turmas, disciplinas=disciplinas,
                            turma_id=turma_id, disciplina_id=disciplina_id,
                            data=data_str, data_freq=data_freq,
+                           encontros=encontros,
                            alunos_data=alunos_data,
                            total_presencas=total_presencas,
                            total_faltas=total_faltas,
                            total_justificadas=total_justificadas,
-                           total_sem_registro=total_sem_registro)
+                           total_sem_registro=total_sem_registro,
+                           sem_vinculo=(professor is None))
 
 
 @professor_bp.route('/atividade', methods=['GET', 'POST'])
