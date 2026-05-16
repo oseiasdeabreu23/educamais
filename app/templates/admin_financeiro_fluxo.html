@@ -125,6 +125,18 @@
           <div class="card-title">Movimentações</div>
           <div class="card-sub">{{ fluxo.movimentacoes | length }} no período</div>
         </div>
+        <div class="d-flex gap-1">
+          <a class="btn btn-ghost btn-sm"
+             href="{{ url_for('admin.financeiro_fluxo_export', formato='pdf', mes=mes, ano=ano) }}"
+             title="Exportar PDF">
+            <i class="bi bi-file-earmark-pdf"></i> PDF
+          </a>
+          <a class="btn btn-ghost btn-sm"
+             href="{{ url_for('admin.financeiro_fluxo_export', formato='xlsx', mes=mes, ano=ano) }}"
+             title="Exportar Excel">
+            <i class="bi bi-file-earmark-spreadsheet"></i> Excel
+          </a>
+        </div>
       </div>
       {% if fluxo.movimentacoes %}
       <table class="table">

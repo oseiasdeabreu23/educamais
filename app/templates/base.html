@@ -159,6 +159,11 @@
             <span class="nav-icon"><i class="bi bi-cloud-arrow-down-fill"></i></span>
             <span>Backup</span>
           </a>
+          <a class="nav-item {% if request.endpoint and request.endpoint.startswith('admin.avisos') %}active{% endif %}"
+             href="{{ url_for('admin.avisos_lista') }}">
+            <span class="nav-icon"><i class="bi bi-megaphone-fill"></i></span>
+            <span>Comunicados</span>
+          </a>
           <a class="nav-item {% if request.endpoint == 'admin.configuracoes' %}active{% endif %}"
              href="{{ url_for('admin.configuracoes') }}">
             <span class="nav-icon"><i class="bi bi-gear-fill"></i></span>
@@ -271,19 +276,65 @@
 
       <div class="topbar-spacer"></div>
 
-      <div class="topbar-search d-none d-md-flex">
+      <div class="topbar-search d-none d-md-flex topbar-search-wrap" id="topbarSearch">
         <i class="bi bi-search"></i>
-        <input type="text" placeholder="Buscar alunos, turmas, atividades…">
-        <span class="kbd">⌘K</span>
+        <input type="text" id="searchInput" autocomplete="off"
+               placeholder="Buscar alunos, turmas, atividades…">
+        <span class="kbd">Ctrl+K</span>
+        <div class="search-dropdown" id="searchDropdown" hidden></div>
       </div>
 
       <button type="button" class="icon-btn" id="themeToggle" title="Alternar tema">
         <i class="bi bi-moon-stars-fill" id="themeIcon"></i>
       </button>
-      <button type="button" class="icon-btn" title="Notificações">
-        <i class="bi bi-bell-fill"></i>
-        <span class="dot"></span>
-      </button>
+
+      <div class="bell-wrap">
+        <button type="button" class="icon-btn" id="bellBtn" title="Notificações">
+          <i class="bi bi-bell-fill"></i>
+          {% if avisos_pendentes_count %}
+            <span class="bell-badge">{{ avisos_pendentes_count }}</span>
+          {% endif %}
+        </button>
+        <div class="bell-dropdown" id="bellDropdown" hidden>
+          <div class="bell-head">
+            <strong>Comunicados</strong>
+            {% if current_user.tipo == 'admin' %}
+              <a href="{{ url_for('admin.avisos_lista') }}" class="dim">Gerenciar</a>
+            {% endif %}
+          </div>
+          {% if avisos_pendentes %}
+            <div class="bell-list">
+              {% for a in avisos_pendentes %}
+              <div class="bell-item bell-{{ a.nivel }}">
+                <div class="bell-item-head">
+                  <span class="bell-dot"></span>
+                  <strong>{{ a.titulo }}</strong>
+                </div>
+                <div class="bell-item-msg">{{ a.mensagem }}</div>
+                <div class="bell-item-foot">
+                  <span class="dim">{{ a.criado_em.strftime('%d/%m %H:%M') }}</span>
+                  <div class="bell-actions">
+                    <button type="button" class="btn btn-sm btn-ghost btn-aviso-snooze"
+                            data-aviso="{{ a.id }}">
+                      <i class="bi bi-clock-history"></i> Lembrar
+                    </button>
+                    <button type="button" class="btn btn-sm btn-primary btn-aviso-ok"
+                            data-aviso="{{ a.id }}">
+                      Entendi
+                    </button>
+                  </div>
+                </div>
+              </div>
+              {% endfor %}
+            </div>
+          {% else %}
+            <div class="bell-empty">
+              <i class="bi bi-check2-circle"></i>
+              <div>Nenhum aviso pendente</div>
+            </div>
+          {% endif %}
+        </div>
+      </div>
     </header>
 
     <section class="page-content">
@@ -301,6 +352,51 @@
       {% block content %}{% endblock %}
     </section>
   </main>
+
+  {# Modal flutuante de avisos: mostra automaticamente os pendentes #}
+  {% if avisos_pendentes %}
+  <div class="aviso-modal-backdrop" id="avisoModalBackdrop">
+    <div class="aviso-modal" role="dialog" aria-modal="true" aria-labelledby="avisoModalTitulo">
+      {% set _atual = avisos_pendentes[0] %}
+      <div class="aviso-modal-header aviso-{{ _atual.nivel }}">
+        <i class="bi
+          {% if _atual.nivel == 'urgente' %}bi-exclamation-octagon-fill
+          {% elif _atual.nivel == 'aviso' %}bi-exclamation-triangle-fill
+          {% elif _atual.nivel == 'sucesso' %}bi-check-circle-fill
+          {% else %}bi-megaphone-fill{% endif %}"></i>
+        <strong id="avisoModalTitulo" data-aviso-id="{{ _atual.id }}">{{ _atual.titulo }}</strong>
+        <span class="dim aviso-modal-count" data-total="{{ avisos_pendentes|length }}">
+          {% if avisos_pendentes|length > 1 %}1 de {{ avisos_pendentes|length }}{% endif %}
+        </span>
+        <button type="button" class="btn btn-ghost btn-sm aviso-modal-close" aria-label="Fechar">
+          <i class="bi bi-x-lg"></i>
+        </button>
+      </div>
+      <div class="aviso-modal-body" id="avisoModalBody">{{ _atual.mensagem }}</div>
+      <div class="aviso-modal-foot">
+        <button type="button" class="btn btn-ghost btn-aviso-snooze"
+                data-aviso="{{ _atual.id }}">
+          <i class="bi bi-clock-history"></i> Lembrar mais tarde
+        </button>
+        <button type="button" class="btn btn-primary btn-aviso-ok"
+                data-aviso="{{ _atual.id }}">
+          <i class="bi bi-check2"></i> Entendi
+        </button>
+      </div>
+      {% if avisos_pendentes|length > 1 %}
+      <div class="aviso-modal-queue" data-queue='{{ avisos_pendentes
+            | map(attribute="id") | list | tojson }}'>
+        {% for a in avisos_pendentes %}
+          <script type="application/json" id="aviso-data-{{ a.id }}">
+            {{ {'titulo': a.titulo, 'mensagem': a.mensagem, 'nivel': a.nivel,
+                'id': a.id} | tojson }}
+          </script>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
 
 {% else %}
   {% block guest %}{% endblock %}
@@ -333,6 +429,166 @@
       document.documentElement.setAttribute('data-theme', nxt);
       try { localStorage.setItem('arvorecer-theme', nxt); } catch (e) {}
       refresh();
+    });
+  })();
+
+  // Bell dropdown (notificações)
+  (function () {
+    var btn = document.getElementById('bellBtn');
+    var dd  = document.getElementById('bellDropdown');
+    if (!btn || !dd) return;
+    btn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      dd.hidden = !dd.hidden;
+    });
+    document.addEventListener('click', function (e) {
+      if (!dd.hidden && !dd.contains(e.target) && e.target !== btn) {
+        dd.hidden = true;
+      }
+    });
+  })();
+
+  // Ações dos avisos (entendi / lembrar) — funciona no modal e no sininho
+  (function () {
+    function csrfHeaders() {
+      return { 'Accept': 'application/json', 'X-Requested-With': 'fetch' };
+    }
+    function postAcao(avisoId, acao, cb) {
+      fetch('/avisos/' + avisoId + '/' + acao, {
+        method: 'POST', headers: csrfHeaders(), credentials: 'same-origin',
+      }).then(function (r) { return r.ok ? r.json() : Promise.reject(r); })
+        .then(function () { if (cb) cb(); })
+        .catch(function () { if (cb) cb(); });
+    }
+
+    // Modal — fila de avisos
+    var backdrop = document.getElementById('avisoModalBackdrop');
+    if (backdrop) {
+      var titulo  = document.getElementById('avisoModalTitulo');
+      var body    = document.getElementById('avisoModalBody');
+      var btnOk   = backdrop.querySelector('.btn-aviso-ok');
+      var btnSnz  = backdrop.querySelector('.btn-aviso-snooze');
+      var btnX    = backdrop.querySelector('.aviso-modal-close');
+      var counter = backdrop.querySelector('.aviso-modal-count');
+      var header  = backdrop.querySelector('.aviso-modal-header');
+      var queueEl = backdrop.querySelector('.aviso-modal-queue');
+      var queue   = [];
+      try {
+        queue = queueEl ? JSON.parse(queueEl.getAttribute('data-queue')) : [parseInt(titulo.dataset.avisoId, 10)];
+      } catch (e) { queue = [parseInt(titulo.dataset.avisoId, 10)]; }
+      var idx = 0;
+
+      function show(i) {
+        if (i >= queue.length) { backdrop.remove(); return; }
+        var avisoId = queue[i];
+        var dataEl = document.getElementById('aviso-data-' + avisoId);
+        if (dataEl) {
+          var d = JSON.parse(dataEl.textContent);
+          titulo.textContent = d.titulo;
+          titulo.dataset.avisoId = d.id;
+          body.textContent = d.mensagem;
+          header.className = 'aviso-modal-header aviso-' + d.nivel;
+        }
+        btnOk.dataset.aviso  = avisoId;
+        btnSnz.dataset.aviso = avisoId;
+        if (counter) counter.textContent = (queue.length > 1) ? ((i + 1) + ' de ' + queue.length) : '';
+        backdrop.style.display = 'flex';
+      }
+
+      function next() { idx++; show(idx); }
+
+      btnOk.addEventListener('click', function () {
+        postAcao(btnOk.dataset.aviso, 'entendi', next);
+      });
+      btnSnz.addEventListener('click', function () {
+        postAcao(btnSnz.dataset.aviso, 'lembrar', next);
+      });
+      btnX.addEventListener('click', function () {
+        backdrop.style.display = 'none';
+      });
+
+      show(0);
+    }
+
+    // Bell dropdown — ações inline
+    document.querySelectorAll('#bellDropdown .btn-aviso-ok').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var card = b.closest('.bell-item');
+        postAcao(b.dataset.aviso, 'entendi', function () {
+          if (card) card.remove();
+        });
+      });
+    });
+    document.querySelectorAll('#bellDropdown .btn-aviso-snooze').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var card = b.closest('.bell-item');
+        postAcao(b.dataset.aviso, 'lembrar', function () {
+          if (card) card.remove();
+        });
+      });
+    });
+  })();
+
+  // Busca da topbar
+  (function () {
+    var wrap  = document.getElementById('topbarSearch');
+    var input = document.getElementById('searchInput');
+    var dd    = document.getElementById('searchDropdown');
+    if (!input || !dd) return;
+    var timer = null;
+
+    function render(data) {
+      var grupos = data && data.grupos || [];
+      if (!grupos.length) {
+        dd.innerHTML = '<div class="search-empty">Nada encontrado para “' +
+                       (data.q || '') + '”.</div>';
+        dd.hidden = false;
+        return;
+      }
+      var html = '';
+      grupos.forEach(function (g) {
+        html += '<div class="search-group-title"><i class="bi ' + g.icone +
+                '"></i> ' + g.titulo + '</div>';
+        g.itens.forEach(function (it) {
+          html += '<a class="search-item" href="' + it.url + '">' +
+                  '<div class="fw-600">' + it.titulo + '</div>' +
+                  (it.sub ? '<div class="dim search-sub">' + it.sub + '</div>' : '') +
+                  '</a>';
+        });
+      });
+      dd.innerHTML = html;
+      dd.hidden = false;
+    }
+
+    function buscar() {
+      var q = input.value.trim();
+      if (q.length < 2) { dd.hidden = true; dd.innerHTML = ''; return; }
+      fetch('/admin/buscar?q=' + encodeURIComponent(q), {
+        credentials: 'same-origin',
+        headers: { 'Accept': 'application/json' },
+      }).then(function (r) { return r.ok ? r.json() : Promise.reject(r); })
+        .then(render)
+        .catch(function () { dd.hidden = true; });
+    }
+
+    input.addEventListener('input', function () {
+      clearTimeout(timer);
+      timer = setTimeout(buscar, 300);
+    });
+    input.addEventListener('focus', function () {
+      if (input.value.trim().length >= 2 && dd.innerHTML) dd.hidden = false;
+    });
+    document.addEventListener('click', function (e) {
+      if (!wrap.contains(e.target)) dd.hidden = true;
+    });
+
+    // Atalho Ctrl/Cmd + K
+    document.addEventListener('keydown', function (e) {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        input.focus();
+        input.select();
+      }
     });
   })();
 </script>

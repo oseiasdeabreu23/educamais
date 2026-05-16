@@ -10,10 +10,14 @@ from app import db
 from app.models import (User, Aluno, Responsavel, Professor, Turma, Disciplina,
                         Curso, Modulo, Videoaula, MatriculaCurso, ConfigSistema,
                         Mensalidade, Boleto, CategoriaDespesa, Movimentacao,
-                        PlanoPagamento, IntegracaoMercadoPago, EncontroTurma)
+                        PlanoPagamento, IntegracaoMercadoPago, EncontroTurma,
+                        Aviso, AvisoLeitura, Atividade,
+                        Nota, Frequencia, Observacao, AlunoResponsavel,
+                        ProgressoVideoaula)
 from app.services import (media_turma, frequencia_geral, alunos_baixo_desempenho,
                           cpf_valido, cep_valido, uf_valida, so_digitos, UFS_BR)
-from app import services_backup, services_financeiro, services_mercadopago, storage
+from app import (services_backup, services_financeiro, services_mercadopago,
+                 services_avisos, storage)
 from app.services_cora import get_cora_client, CoraError, CoraMockClient
 from app.services_mercadopago import MercadoPagoError
 from app.permissoes import requires, pode, ROLES_CRIAVEIS_ADMIN, ROLES_LABEL
@@ -230,9 +234,73 @@ def editar_aluno(id):
 @requires('aluno.excluir')
 def excluir_aluno(id):
     aluno = Aluno.query.get_or_404(id)
-    db.session.delete(aluno)
-    db.session.commit()
-    flash('Aluno removido.', 'success')
+
+    # Bloqueia exclusão se o aluno tem histórico financeiro pago.
+    # Apagar destruiria registro contábil — preferimos preservar e sugerir
+    # marcar como "evadido" (que mantém histórico mas tira dos dashboards).
+    tem_boleto_pago = (db.session.query(Boleto.id)
+                       .join(Mensalidade, Mensalidade.id == Boleto.mensalidade_id)
+                       .filter(Mensalidade.aluno_id == aluno.id,
+                               Boleto.status == 'pago')
+                       .first() is not None)
+    if tem_boleto_pago:
+        flash(
+            f'Não é possível excluir {aluno.nome} porque já existem boletos '
+            'pagos no histórico (registro contábil). Marque como evadido '
+            'para tirar dos dashboards mantendo o histórico financeiro.',
+            'warning'
+        )
+        return redirect(url_for('admin.alunos') + f'#aluno-{aluno.id}')
+
+    nome = aluno.nome
+
+    try:
+        # 1) Cancela plano ativo + boletos em aberto (no Cora, se houver)
+        try:
+            services_financeiro.cancelar_plano_aluno(aluno)
+        except Exception:
+            # Se Cora falhar, segue — vamos apagar tudo localmente mesmo.
+            db.session.rollback()
+
+        # 2) Apaga dependências em ordem (filhos antes dos pais)
+        ProgressoVideoaula.query.filter_by(aluno_id=aluno.id).delete(
+            synchronize_session=False)
+        MatriculaCurso.query.filter_by(aluno_id=aluno.id).delete(
+            synchronize_session=False)
+        Nota.query.filter_by(aluno_id=aluno.id).delete(synchronize_session=False)
+        Frequencia.query.filter_by(aluno_id=aluno.id).delete(
+            synchronize_session=False)
+        Observacao.query.filter_by(aluno_id=aluno.id).delete(
+            synchronize_session=False)
+        AlunoResponsavel.query.filter_by(aluno_id=aluno.id).delete(
+            synchronize_session=False)
+
+        # Mensalidades têm cascade='all, delete-orphan' nos boletos, então
+        # apagar a mensalidade já apaga os boletos vinculados.
+        Mensalidade.query.filter_by(aluno_id=aluno.id).delete(
+            synchronize_session=False)
+        PlanoPagamento.query.filter_by(aluno_id=aluno.id).delete(
+            synchronize_session=False)
+
+        # 3) Apaga o usuário vinculado (se existir), depois o próprio aluno
+        user_vinculado = aluno.user_id
+        db.session.delete(aluno)
+        if user_vinculado:
+            user = User.query.get(user_vinculado)
+            if user:
+                db.session.delete(user)
+
+        db.session.commit()
+        flash(f'Aluno {nome} excluído.', 'success')
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.exception('Erro ao excluir aluno %s: %s', id, e)
+        flash(
+            'Não foi possível excluir o aluno por causa de vínculos no banco. '
+            'Tente marcar como "evadido" — o aluno some dos dashboards mas '
+            'o histórico fica preservado.',
+            'danger'
+        )
     return redirect(url_for('admin.alunos'))
 
 
@@ -914,16 +982,40 @@ def _periodo_atual():
 @requires('financeiro.ver')
 def financeiro():
     services_financeiro.seed_categorias_padrao()
-    mes, ano = _periodo_atual()
+    # Default = mês corrente (atualiza automaticamente no início do mês).
+    # Aceita ?mes=&ano= pra revisitar períodos passados.
+    hoje = date.today()
+    try:
+        mes = int(request.args.get('mes', hoje.month))
+        ano = int(request.args.get('ano', hoje.year))
+        if not 1 <= mes <= 12:
+            mes = hoje.month
+        if not 2020 <= ano <= 2099:
+            ano = hoje.year
+    except ValueError:
+        mes, ano = hoje.month, hoje.year
+
     kpis = services_financeiro.kpis_mes(mes, ano)
-    # Últimas 8 movimentações pra contexto
+    # Últimas 8 movimentações do mês selecionado (vs. globais antes)
+    inicio = date(ano, mes, 1)
+    from calendar import monthrange as _mr
+    fim = date(ano, mes, _mr(ano, mes)[1])
     ult = (Movimentacao.query
+           .filter(Movimentacao.data >= inicio, Movimentacao.data <= fim)
            .order_by(Movimentacao.data.desc(), Movimentacao.id.desc())
            .limit(8).all())
+
+    # Mês anterior / próximo (para navegação)
+    mes_ant, ano_ant = (12, ano - 1) if mes == 1 else (mes - 1, ano)
+    mes_prox, ano_prox = (1, ano + 1) if mes == 12 else (mes + 1, ano)
+
     return render_template(
         'admin_financeiro.html',
         kpis=kpis, mes=mes, ano=ano, mes_nome=MESES_PT[mes - 1],
-        ultimas_movs=ult,
+        ultimas_movs=ult, meses=MESES_PT,
+        mes_ant=mes_ant, ano_ant=ano_ant,
+        mes_prox=mes_prox, ano_prox=ano_prox,
+        mes_atual=hoje.month, ano_atual=hoje.year,
     )
 
 
@@ -1259,6 +1351,114 @@ def financeiro_movimentacao_excluir(id):
     return redirect(url_for('admin.financeiro_fluxo_caixa'))
 
 
+# Exports financeiros (PDF + Excel) -------------------------------------------
+
+def _nome_sistema():
+    cfg = ConfigSistema.query.first()
+    return (cfg.nome if cfg and cfg.nome else 'EducaMais')
+
+
+def _periodo_export():
+    """Lê mes/ano da query e clampa em valores válidos."""
+    hoje = date.today()
+    try:
+        mes = int(request.args.get('mes', hoje.month))
+        ano = int(request.args.get('ano', hoje.year))
+        if not 1 <= mes <= 12:
+            mes = hoje.month
+        if not 2020 <= ano <= 2099:
+            ano = hoje.year
+    except ValueError:
+        mes, ano = hoje.month, hoje.year
+    return mes, ano
+
+
+@admin_bp.route('/financeiro/fluxo-caixa/export/<formato>')
+@login_required
+@requires('financeiro.ver')
+def financeiro_fluxo_export(formato):
+    from calendar import monthrange as _mr
+    from app import services_export
+
+    mes, ano = _periodo_export()
+    inicio = date(ano, mes, 1)
+    fim = date(ano, mes, _mr(ano, mes)[1])
+    fluxo = services_financeiro.fluxo_caixa(inicio, fim)
+
+    nome_base = f'fluxo-caixa_{ano}-{mes:02d}'
+    if formato == 'pdf':
+        buf = services_export.fluxo_para_pdf(fluxo, mes, ano, _nome_sistema())
+        return send_file(buf, mimetype='application/pdf',
+                         as_attachment=True, download_name=f'{nome_base}.pdf')
+    if formato == 'xlsx':
+        buf = services_export.fluxo_para_xlsx(fluxo, mes, ano, _nome_sistema())
+        return send_file(
+            buf,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            as_attachment=True, download_name=f'{nome_base}.xlsx')
+    abort(404)
+
+
+@admin_bp.route('/financeiro/mensalidades/export/<formato>')
+@login_required
+@requires('financeiro.ver')
+def financeiro_mensalidades_export(formato):
+    from app import services_export
+    mes, ano = _periodo_export()
+    mensalidades = (Mensalidade.query
+                    .filter_by(mes=mes, ano=ano)
+                    .join(Aluno).order_by(Aluno.nome).all())
+
+    nome_base = f'mensalidades_{ano}-{mes:02d}'
+    if formato == 'pdf':
+        buf = services_export.mensalidades_para_pdf(
+            mensalidades, mes, ano, _nome_sistema())
+        return send_file(buf, mimetype='application/pdf',
+                         as_attachment=True, download_name=f'{nome_base}.pdf')
+    if formato == 'xlsx':
+        buf = services_export.mensalidades_para_xlsx(
+            mensalidades, mes, ano, _nome_sistema())
+        return send_file(
+            buf,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            as_attachment=True, download_name=f'{nome_base}.xlsx')
+    abort(404)
+
+
+@admin_bp.route('/financeiro/inadimplentes/export/pdf')
+@login_required
+@requires('financeiro.ver')
+def financeiro_inadimplentes_export_pdf():
+    from app import services_export
+    escopo = request.args.get('escopo', 'todos')
+    mes, ano = _periodo_export()
+    lista = services_financeiro.inadimplentes(escopo=escopo, mes=mes, ano=ano)
+    buf = services_export.inadimplentes_para_pdf(
+        lista, MESES_PT[mes - 1], ano, _nome_sistema(), escopo=escopo,
+    )
+    sufixo = f'{ano}-{mes:02d}' if escopo == 'mes' else 'todos'
+    return send_file(buf, mimetype='application/pdf', as_attachment=True,
+                     download_name=f'inadimplentes_{sufixo}.pdf')
+
+
+@admin_bp.route('/financeiro/boletos/export/xlsx')
+@login_required
+@requires('financeiro.ver')
+def financeiro_boletos_export_xlsx():
+    from app import services_export
+    status = request.args.get('status', '')
+    q = Boleto.query.order_by(Boleto.vencimento.desc(), Boleto.id.desc())
+    if status:
+        q = q.filter(Boleto.status == status)
+    boletos = q.limit(2000).all()
+    mes, ano = _periodo_export()
+    buf = services_export.boletos_para_xlsx(boletos, mes, ano, _nome_sistema())
+    return send_file(
+        buf,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        as_attachment=True, download_name=f'boletos_{ano}-{mes:02d}.xlsx')
+
+
 # Categorias ------------------------------------------------------------------
 
 @admin_bp.route('/financeiro/categorias', methods=['GET', 'POST'])
@@ -1489,3 +1689,210 @@ def financeiro_mp_webhook():
         db.session.commit()
 
     return jsonify({'ok': True, 'boleto_id': boleto.id, 'status': boleto.status})
+
+
+# ── Avisos / Comunicados ───────────────────────────────────────────────────────
+
+NIVEIS_AVISO = ('info', 'sucesso', 'aviso', 'urgente')
+PAPEIS_AVISO = ('admin', 'coordenador', 'gestor', 'professor', 'responsavel', 'aluno')
+
+
+@admin_bp.route('/avisos', methods=['GET', 'POST'])
+@login_required
+@admin_required
+def avisos_lista():
+    if request.method == 'POST':
+        titulo = (request.form.get('titulo') or '').strip()
+        mensagem = (request.form.get('mensagem') or '').strip()
+        nivel = (request.form.get('nivel') or 'info').strip()
+        escopo = (request.form.get('escopo') or 'global').strip()
+        expira_str = (request.form.get('expira_em') or '').strip()
+
+        if not titulo or not mensagem:
+            flash('Título e mensagem são obrigatórios.', 'danger')
+            return redirect(url_for('admin.avisos_lista'))
+        if nivel not in NIVEIS_AVISO:
+            nivel = 'info'
+
+        papeis_alvo = None
+        usuarios_alvo = None
+        if escopo == 'por_papel':
+            papeis = [p for p in request.form.getlist('papeis')
+                      if p in PAPEIS_AVISO]
+            if not papeis:
+                flash('Selecione ao menos um papel.', 'danger')
+                return redirect(url_for('admin.avisos_lista'))
+            papeis_alvo = ','.join(papeis)
+        elif escopo == 'por_usuario':
+            ids = [i for i in request.form.getlist('usuarios')
+                   if i.isdigit()]
+            if not ids:
+                flash('Selecione ao menos um usuário.', 'danger')
+                return redirect(url_for('admin.avisos_lista'))
+            usuarios_alvo = ','.join(ids)
+        elif escopo != 'global':
+            escopo = 'global'
+
+        expira_em = None
+        if expira_str:
+            try:
+                expira_em = datetime.strptime(expira_str, '%Y-%m-%d')
+            except ValueError:
+                flash('Data de expiração inválida.', 'warning')
+
+        try:
+            services_avisos.criar_aviso(
+                titulo=titulo, mensagem=mensagem, nivel=nivel,
+                escopo=escopo, papeis_alvo=papeis_alvo,
+                usuarios_alvo=usuarios_alvo,
+                criado_por_id=current_user.id, expira_em=expira_em,
+            )
+            flash('Comunicado publicado.', 'success')
+        except ValueError as e:
+            flash(str(e), 'danger')
+        return redirect(url_for('admin.avisos_lista'))
+
+    avisos = (Aviso.query
+              .order_by(Aviso.ativo.desc(), Aviso.criado_em.desc())
+              .limit(50).all())
+    contagens = {a.id: services_avisos.contagem_leituras(a) for a in avisos}
+    usuarios = User.query.order_by(User.nome).all()
+    return render_template(
+        'admin_avisos.html',
+        avisos=avisos, contagens=contagens,
+        niveis=NIVEIS_AVISO, papeis=PAPEIS_AVISO,
+        papeis_label=ROLES_LABEL, usuarios=usuarios,
+    )
+
+
+@admin_bp.route('/avisos/<int:aviso_id>/encerrar', methods=['POST'])
+@login_required
+@admin_required
+def avisos_encerrar(aviso_id):
+    aviso = Aviso.query.get_or_404(aviso_id)
+    services_avisos.encerrar_aviso(aviso)
+    flash('Comunicado encerrado.', 'success')
+    return redirect(url_for('admin.avisos_lista'))
+
+
+@admin_bp.route('/avisos/<int:aviso_id>/excluir', methods=['POST'])
+@login_required
+@admin_required
+def avisos_excluir(aviso_id):
+    aviso = Aviso.query.get_or_404(aviso_id)
+    services_avisos.excluir_aviso(aviso)
+    flash('Comunicado excluído.', 'success')
+    return redirect(url_for('admin.avisos_lista'))
+
+
+# ── Busca global (topbar) ─────────────────────────────────────────────────────
+
+@admin_bp.route('/buscar')
+@login_required
+def buscar_global():
+    """Busca rápida usada no input da topbar.
+
+    Retorna JSON com grupos (alunos, turmas, professores, responsáveis,
+    cursos, atividades) — filtrado pelo papel do usuário.
+    """
+    termo = (request.args.get('q') or '').strip()
+    if len(termo) < 2:
+        return jsonify({'q': termo, 'grupos': []})
+
+    like = f'%{termo}%'
+    digitos = ''.join(ch for ch in termo if ch.isdigit())
+    grupos = []
+
+    tipo = current_user.tipo
+    admin_like = tipo in ('admin', 'coordenador', 'gestor')
+
+    # --- Alunos --------------------------------------------------------------
+    if admin_like:
+        q = Aluno.query.filter(
+            db.or_(
+                Aluno.nome.ilike(like),
+                Aluno.cpf == digitos if digitos else db.false(),
+                db.cast(Aluno.id, db.String).ilike(f'%{digitos}%') if digitos else db.false(),
+            )
+        ).order_by(Aluno.nome).limit(8).all()
+        if q:
+            grupos.append({
+                'titulo': 'Alunos', 'icone': 'bi-person-fill',
+                'itens': [{
+                    'titulo': a.nome,
+                    'sub': f'Matrícula #{a.id:04d}' + (f' • {a.cpf_formatado}' if a.cpf else ''),
+                    'url': url_for('admin.alunos') + f'#aluno-{a.id}',
+                } for a in q],
+            })
+
+    # --- Turmas --------------------------------------------------------------
+    if admin_like:
+        q = Turma.query.filter(Turma.nome.ilike(like)).order_by(Turma.nome).limit(8).all()
+        if q:
+            grupos.append({
+                'titulo': 'Turmas', 'icone': 'bi-people-fill',
+                'itens': [{
+                    'titulo': t.nome,
+                    'sub': f'{len(t.alunos)} aluno(s)',
+                    'url': url_for('admin.turma_detalhe', id=t.id),
+                } for t in q],
+            })
+
+    # --- Professores ---------------------------------------------------------
+    if admin_like:
+        q = Professor.query.filter(Professor.nome.ilike(like)).order_by(Professor.nome).limit(8).all()
+        if q:
+            grupos.append({
+                'titulo': 'Professores', 'icone': 'bi-mortarboard-fill',
+                'itens': [{
+                    'titulo': p.nome, 'sub': '',
+                    'url': url_for('admin.professores') + f'#prof-{p.id}',
+                } for p in q],
+            })
+
+    # --- Responsáveis --------------------------------------------------------
+    if admin_like:
+        q = Responsavel.query.filter(
+            db.or_(
+                Responsavel.nome.ilike(like),
+                Responsavel.cpf == digitos if digitos else db.false(),
+            )
+        ).order_by(Responsavel.nome).limit(8).all()
+        if q:
+            grupos.append({
+                'titulo': 'Responsáveis', 'icone': 'bi-person-heart',
+                'itens': [{
+                    'titulo': r.nome,
+                    'sub': r.cpf_formatado if r.cpf else '',
+                    'url': url_for('admin.responsaveis') + f'#resp-{r.id}',
+                } for r in q],
+            })
+
+    # --- Cursos --------------------------------------------------------------
+    if admin_like:
+        q = Curso.query.filter(Curso.titulo.ilike(like)).order_by(Curso.titulo).limit(8).all()
+        if q:
+            grupos.append({
+                'titulo': 'Cursos', 'icone': 'bi-play-btn-fill',
+                'itens': [{
+                    'titulo': c.titulo, 'sub': '',
+                    'url': url_for('admin.curso_detalhe', curso_id=c.id),
+                } for c in q],
+            })
+
+    # --- Atividades ----------------------------------------------------------
+    if admin_like:
+        try:
+            q = Atividade.query.filter(Atividade.titulo.ilike(like)).order_by(Atividade.titulo).limit(8).all()
+            if q:
+                grupos.append({
+                    'titulo': 'Atividades', 'icone': 'bi-clipboard-fill',
+                    'itens': [{
+                        'titulo': a.titulo, 'sub': '',
+                        'url': '#',  # atividades vivem em professor; sem rota admin dedicada
+                    } for a in q],
+                })
+        except Exception:
+            pass
+
+    return jsonify({'q': termo, 'grupos': grupos})

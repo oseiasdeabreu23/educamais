@@ -18,6 +18,11 @@
         <option value="vencido"    {% if status_filtro=='vencido' %}selected{% endif %}>Vencidos</option>
         <option value="cancelado"  {% if status_filtro=='cancelado' %}selected{% endif %}>Cancelados</option>
       </select>
+      <a class="btn btn-ghost btn-sm"
+         href="{{ url_for('admin.financeiro_boletos_export_xlsx', status=status_filtro) }}"
+         title="Exportar Excel">
+        <i class="bi bi-file-earmark-spreadsheet"></i> Excel
+      </a>
     </form>
   </div>
 

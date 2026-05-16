@@ -87,13 +87,14 @@ def create_app():
     from app.models import (User, Aluno, Responsavel, Professor, Turma, Disciplina,
                             Nota, Frequencia, Atividade, Observacao,
                             Curso, Modulo, Videoaula, MatriculaCurso, ProgressoVideoaula,
-                            ConfigSistema, ConfigLicenca)
+                            ConfigSistema, ConfigLicenca, Aviso, AvisoLeitura)
     from app.auth import auth_bp
     from app.routes_admin import admin_bp
     from app.routes_professor import professor_bp
     from app.routes_responsavel import responsavel_bp
     from app.routes_aluno import aluno_bp
     from app.routes_licenca import licenca_bp
+    from app.routes_avisos import avisos_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(admin_bp, url_prefix='/admin')
@@ -101,6 +102,7 @@ def create_app():
     app.register_blueprint(responsavel_bp, url_prefix='/responsavel')
     app.register_blueprint(aluno_bp, url_prefix='/aluno')
     app.register_blueprint(licenca_bp)
+    app.register_blueprint(avisos_bp)
 
     @app.context_processor
     def inject_config_sistema():
@@ -128,6 +130,23 @@ def create_app():
     @app.context_processor
     def inject_permissions():
         return {'pode': lambda acao: _pode(_current_user, acao)}
+
+    # Avisos pendentes — usado pelo sininho da topbar e pelo modal flutuante.
+    # Roda em todo request autenticado, então fica leve (1 query com joins).
+    from app import services_avisos as _services_avisos
+
+    @app.context_processor
+    def inject_avisos_pendentes():
+        try:
+            if _current_user.is_authenticated:
+                pend = _services_avisos.avisos_pendentes_para(_current_user)
+                return {
+                    'avisos_pendentes': pend,
+                    'avisos_pendentes_count': len(pend),
+                }
+        except Exception:
+            pass
+        return {'avisos_pendentes': [], 'avisos_pendentes_count': 0}
 
     @app.route('/')
     def index():

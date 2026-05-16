@@ -482,6 +482,64 @@ class CoraMockMovimentacao(db.Model):
     cora_boleto_id = db.Column(db.String(64), nullable=True)
 
 
+class Aviso(db.Model):
+    """Comunicado interno criado pelo admin para os usuários do sistema.
+
+    Escopo pode ser:
+      - ``global``: aparece para todo usuário logado.
+      - ``por_papel``: filtra por tipo de usuário em ``papeis_alvo`` (CSV,
+        ex.: ``professor,aluno``).
+      - ``por_usuario``: filtra por IDs em ``usuarios_alvo`` (CSV).
+    """
+    __tablename__ = 'avisos'
+    id = db.Column(db.Integer, primary_key=True)
+    titulo = db.Column(db.String(200), nullable=False)
+    mensagem = db.Column(db.Text, nullable=False)
+    nivel = db.Column(db.String(20), nullable=False, default='info')
+    # info | sucesso | aviso | urgente
+    escopo = db.Column(db.String(20), nullable=False, default='global')
+    # global | por_papel | por_usuario
+    papeis_alvo = db.Column(db.String(200), nullable=True)
+    usuarios_alvo = db.Column(db.String(500), nullable=True)
+    criado_por_id = db.Column(db.Integer, db.ForeignKey('usuarios.id'), nullable=True)
+    criado_em = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    expira_em = db.Column(db.DateTime, nullable=True)
+    ativo = db.Column(db.Boolean, nullable=False, default=True)
+
+    criado_por = db.relationship('User', backref='avisos_criados', lazy=True)
+    leituras = db.relationship(
+        'AvisoLeitura', backref='aviso', lazy=True,
+        cascade='all, delete-orphan'
+    )
+
+    def lista_papeis(self):
+        if not self.papeis_alvo:
+            return []
+        return [p.strip() for p in self.papeis_alvo.split(',') if p.strip()]
+
+    def lista_usuarios(self):
+        if not self.usuarios_alvo:
+            return []
+        return [int(u) for u in self.usuarios_alvo.split(',') if u.strip().isdigit()]
+
+
+class AvisoLeitura(db.Model):
+    __tablename__ = 'aviso_leituras'
+    id = db.Column(db.Integer, primary_key=True)
+    aviso_id = db.Column(db.Integer, db.ForeignKey('avisos.id'), nullable=False)
+    usuario_id = db.Column(db.Integer, db.ForeignKey('usuarios.id'), nullable=False)
+    status = db.Column(db.String(20), nullable=False, default='entendi')
+    # entendi | lembrar_depois
+    atualizado_em = db.Column(db.DateTime, default=datetime.utcnow,
+                              onupdate=datetime.utcnow, nullable=False)
+    lembrete_para = db.Column(db.DateTime, nullable=True)
+
+    usuario = db.relationship('User', lazy=True)
+    __table_args__ = (
+        db.UniqueConstraint('aviso_id', 'usuario_id', name='uq_aviso_leitura'),
+    )
+
+
 @login_manager.user_loader
 def load_user(user_id):
     return User.query.get(int(user_id))

@@ -27,6 +27,11 @@
     <button type="submit" class="btn btn-primary">
       <i class="bi bi-funnel"></i> Aplicar
     </button>
+    <a class="btn btn-ghost"
+       href="{{ url_for('admin.financeiro_inadimplentes_export_pdf', escopo=escopo, mes=mes, ano=ano) }}"
+       title="Exportar PDF">
+      <i class="bi bi-file-earmark-pdf"></i> PDF
+    </a>
   </form>
 </div>
 

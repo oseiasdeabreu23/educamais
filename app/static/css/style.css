@@ -191,18 +191,18 @@ body.app {
 }
 .sidebar-brand:hover { color: inherit; }
 .brand-mark {
-  width: 38px; height: 38px;
-  border-radius: 11px;
+  width: 64px; height: 64px;
+  border-radius: 16px;
   background: linear-gradient(135deg, var(--brand-500) 0%, var(--brand-700) 100%);
   display: grid; place-items: center;
   color: #fff;
   box-shadow: 0 6px 18px -8px rgba(59,130,246,.7);
   flex-shrink: 0;
-  font-size: 18px;
+  font-size: 28px;
 }
 .brand-mark img {
-  max-width: 26px;
-  max-height: 26px;
+  max-width: 52px;
+  max-height: 52px;
   object-fit: contain;
 }
 .brand-name {
@@ -1175,7 +1175,7 @@ tr.table-light > *,
   background: rgba(255,255,255,.18);
   box-shadow: none;
 }
-.login-top .brand-mark img { max-width: 30px; max-height: 30px; }
+.login-top .brand-mark img { max-width: 52px; max-height: 52px; }
 .login-top .brand-name { color: #fff; font-size: 17px; }
 .login-top .brand-role { color: rgba(255,255,255,.7); }
 
@@ -1367,3 +1367,191 @@ tr.table-light > *,
   .login-brand-side { display: none; }
   .login-form-side { padding: 28px 20px; }
 }
+
+/* ─── Topbar: busca com dropdown ──────────────────────────────────── */
+.topbar-search-wrap { position: relative; }
+.search-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0; right: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  box-shadow: 0 10px 30px -10px rgba(0,0,0,.25);
+  z-index: 200;
+  max-height: 480px;
+  overflow-y: auto;
+  padding: 6px;
+}
+.search-group-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--text-3);
+  padding: 8px 10px 4px;
+  display: flex; align-items: center; gap: 6px;
+  font-weight: 700;
+}
+.search-item {
+  display: block;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  color: var(--text);
+  text-decoration: none;
+  font-size: 13.5px;
+  line-height: 1.35;
+}
+.search-item:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+.search-sub { font-size: 11.5px; margin-top: 2px; }
+.search-empty {
+  padding: 20px 12px;
+  text-align: center;
+  color: var(--text-3);
+  font-size: 13px;
+}
+
+/* ─── Sininho: badge + dropdown ───────────────────────────────────── */
+.bell-wrap { position: relative; }
+.bell-badge {
+  position: absolute;
+  top: 4px; right: 4px;
+  min-width: 16px; height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--bad);
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 700;
+  display: grid; place-items: center;
+  line-height: 1;
+  border: 2px solid var(--bg-2);
+}
+.bell-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 360px;
+  max-width: calc(100vw - 24px);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  box-shadow: 0 14px 40px -12px rgba(0,0,0,.3);
+  z-index: 200;
+  max-height: 520px;
+  overflow-y: auto;
+}
+.bell-head {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.bell-head a { color: var(--primary); text-decoration: none; font-size: 12.5px; }
+.bell-list { padding: 6px; }
+.bell-item {
+  padding: 12px;
+  border-radius: var(--r-sm);
+  border-left: 3px solid var(--primary);
+  background: var(--surface-2);
+  margin-bottom: 6px;
+}
+.bell-item.bell-urgente { border-left-color: var(--bad); }
+.bell-item.bell-aviso   { border-left-color: var(--warn); }
+.bell-item.bell-sucesso { border-left-color: var(--ok); }
+.bell-item-head {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 13.5px;
+}
+.bell-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--primary);
+  flex-shrink: 0;
+}
+.bell-urgente .bell-dot { background: var(--bad); }
+.bell-aviso   .bell-dot { background: var(--warn); }
+.bell-sucesso .bell-dot { background: var(--ok); }
+.bell-item-msg {
+  font-size: 12.5px;
+  color: var(--text-2);
+  margin: 6px 0 10px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+}
+.bell-item-foot {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px;
+  font-size: 11.5px;
+}
+.bell-actions { display: flex; gap: 6px; }
+.bell-empty {
+  padding: 32px 16px;
+  text-align: center;
+  color: var(--text-3);
+}
+.bell-empty i { font-size: 32px; opacity: .5; display: block; margin-bottom: 8px; }
+
+/* ─── Modal flutuante de aviso ────────────────────────────────────── */
+.aviso-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.5);
+  z-index: 1080;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  animation: avisoFadeIn .18s ease-out;
+}
+@keyframes avisoFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.aviso-modal {
+  background: var(--surface);
+  border-radius: var(--r-lg);
+  border: 1px solid var(--border);
+  box-shadow: 0 24px 60px -10px rgba(0,0,0,.45);
+  max-width: 520px;
+  width: 100%;
+  overflow: hidden;
+  animation: avisoSlideUp .22s ease-out;
+}
+@keyframes avisoSlideUp {
+  from { transform: translateY(20px); opacity: 0; }
+  to   { transform: translateY(0); opacity: 1; }
+}
+.aviso-modal-header {
+  display: flex; align-items: center; gap: 10px;
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+}
+.aviso-modal-header i { font-size: 22px; }
+.aviso-modal-header strong { font-size: 16px; flex: 1; }
+.aviso-modal-header.aviso-urgente i { color: var(--bad); }
+.aviso-modal-header.aviso-aviso i   { color: var(--warn); }
+.aviso-modal-header.aviso-sucesso i { color: var(--ok); }
+.aviso-modal-header.aviso-info i    { color: var(--primary); }
+.aviso-modal-count { font-size: 11.5px; color: var(--text-3); }
+.aviso-modal-close { padding: 4px 8px; }
+.aviso-modal-body {
+  padding: 22px 20px;
+  font-size: 14.5px;
+  line-height: 1.55;
+  color: var(--text);
+  white-space: pre-wrap;
+  min-height: 80px;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+.aviso-modal-foot {
+  display: flex; gap: 10px; justify-content: flex-end;
+  padding: 14px 20px 18px;
+  border-top: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.aviso-modal-queue { display: none; }
+

@@ -1,0 +1,186 @@
+{% extends 'base.html' %}
+{% block page_title %}Comunicados{% endblock %}
+{% block page_subtitle %}<div class="topbar-sub">Avisos para usuários do sistema</div>{% endblock %}
+{% block content %}
+
+<div class="row g-3">
+  {# ── Form: novo comunicado ── #}
+  <div class="col-lg-5">
+    <div class="card">
+      <div class="card-h">
+        <div>
+          <div class="card-title">Publicar comunicado</div>
+          <div class="card-sub">Aparece automaticamente para os destinatários</div>
+        </div>
+        <span class="qa-icon" style="background:rgba(59,130,246,.15); color:var(--primary)">
+          <i class="bi bi-megaphone-fill"></i>
+        </span>
+      </div>
+      <form method="POST" class="stack-md">
+        <div>
+          <label class="label">Título</label>
+          <input type="text" name="titulo" class="input" required maxlength="200"
+                 placeholder="Ex.: Recesso da próxima semana">
+        </div>
+        <div>
+          <label class="label">Mensagem</label>
+          <textarea name="mensagem" class="input" rows="4" required
+                    placeholder="Texto completo do aviso..."></textarea>
+        </div>
+        <div>
+          <label class="label">Nível</label>
+          <select name="nivel" class="input">
+            <option value="info">Informativo</option>
+            <option value="sucesso">Boa notícia</option>
+            <option value="aviso">Atenção</option>
+            <option value="urgente">Urgente</option>
+          </select>
+        </div>
+        <div>
+          <label class="label">Quem deve receber</label>
+          <select name="escopo" class="input" id="escopoSel">
+            <option value="global">Todos os usuários</option>
+            <option value="por_papel">Por papel (professor, aluno, etc.)</option>
+            <option value="por_usuario">Usuários específicos</option>
+          </select>
+        </div>
+
+        <div id="grupoPapeis" hidden>
+          <label class="label">Papéis</label>
+          <div class="d-flex flex-wrap gap-2">
+            {% for p in papeis %}
+            <label class="d-flex align-items-center gap-1 px-2 py-1"
+                   style="border:1px solid var(--border); border-radius:8px; cursor:pointer">
+              <input type="checkbox" name="papeis" value="{{ p }}">
+              <span>{{ papeis_label.get(p, p) }}</span>
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+
+        <div id="grupoUsuarios" hidden>
+          <label class="label">Usuários</label>
+          <select name="usuarios" class="input" multiple size="6">
+            {% for u in usuarios %}
+            <option value="{{ u.id }}">{{ u.nome }} — {{ papeis_label.get(u.tipo, u.tipo) }}</option>
+            {% endfor %}
+          </select>
+          <div class="dim" style="font-size:11.5px; margin-top:4px">
+            Segure Ctrl (ou Cmd) para selecionar mais de um.
+          </div>
+        </div>
+
+        <div>
+          <label class="label">Expira em (opcional)</label>
+          <input type="date" name="expira_em" class="input">
+        </div>
+
+        <button type="submit" class="btn btn-primary w-100">
+          <i class="bi bi-send"></i> Publicar
+        </button>
+      </form>
+    </div>
+  </div>
+
+  {# ── Lista de avisos ── #}
+  <div class="col-lg-7">
+    <div class="card no-pad">
+      <div class="card-h" style="padding:20px 20px 16px; margin:0">
+        <div>
+          <div class="card-title">Comunicados publicados</div>
+          <div class="card-sub">{{ avisos | length }} no histórico recente</div>
+        </div>
+      </div>
+      {% if avisos %}
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Título</th>
+            <th>Escopo</th>
+            <th>Lido por</th>
+            <th>Status</th>
+            <th style="width:120px"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for a in avisos %}
+          {% set ent, snz, total = contagens[a.id] %}
+          <tr>
+            <td>
+              <div class="fw-600">
+                {% if a.nivel == 'urgente' %}<i class="bi bi-exclamation-octagon-fill" style="color:var(--bad)"></i>
+                {% elif a.nivel == 'aviso' %}<i class="bi bi-exclamation-triangle-fill" style="color:var(--warn)"></i>
+                {% elif a.nivel == 'sucesso' %}<i class="bi bi-check-circle-fill" style="color:var(--ok)"></i>
+                {% else %}<i class="bi bi-megaphone-fill" style="color:var(--primary)"></i>{% endif %}
+                {{ a.titulo }}
+              </div>
+              <div class="dim" style="font-size:11.5px; margin-top:2px">
+                {{ a.criado_em.strftime('%d/%m/%Y %H:%M') }}
+                {% if a.expira_em %} • expira {{ a.expira_em.strftime('%d/%m') }}{% endif %}
+              </div>
+            </td>
+            <td class="dim" style="font-size:12px">
+              {% if a.escopo == 'global' %}
+                Todos
+              {% elif a.escopo == 'por_papel' %}
+                {{ a.lista_papeis() | map('capitalize') | join(', ') }}
+              {% else %}
+                {{ a.lista_usuarios() | length }} usuário(s)
+              {% endif %}
+            </td>
+            <td>
+              <span class="badge badge-ok">{{ ent }} entendi</span>
+              {% if snz %}<span class="badge badge-warn">{{ snz }} adiou</span>{% endif %}
+            </td>
+            <td>
+              {% if a.ativo %}
+                <span class="badge badge-primary">Ativo</span>
+              {% else %}
+                <span class="badge">Encerrado</span>
+              {% endif %}
+            </td>
+            <td class="text-end">
+              {% if a.ativo %}
+              <form method="POST" action="{{ url_for('admin.avisos_encerrar', aviso_id=a.id) }}"
+                    style="display:inline" onsubmit="return confirm('Encerrar este aviso? Ele deixa de aparecer.')">
+                <button type="submit" class="btn btn-ghost btn-sm" title="Encerrar">
+                  <i class="bi bi-x-circle"></i>
+                </button>
+              </form>
+              {% endif %}
+              <form method="POST" action="{{ url_for('admin.avisos_excluir', aviso_id=a.id) }}"
+                    style="display:inline" onsubmit="return confirm('Excluir definitivamente?')">
+                <button type="submit" class="btn btn-ghost btn-sm" title="Excluir" style="color:var(--bad)">
+                  <i class="bi bi-trash"></i>
+                </button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="empty-state">
+        <i class="bi bi-megaphone"></i>
+        <p>Nenhum comunicado publicado ainda.</p>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var sel = document.getElementById('escopoSel');
+  var pap = document.getElementById('grupoPapeis');
+  var usr = document.getElementById('grupoUsuarios');
+  function refresh() {
+    pap.hidden = sel.value !== 'por_papel';
+    usr.hidden = sel.value !== 'por_usuario';
+  }
+  sel.addEventListener('change', refresh);
+  refresh();
+})();
+</script>
+
+{% endblock %}
