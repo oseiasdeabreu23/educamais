@@ -325,9 +325,13 @@ def _sincronizar_encontros(turma, datas_str):
         datas_validas.append(d)
     datas_validas.sort()
 
-    # Remove os atuais e regrava (mais simples que diff incremental)
+    # Remove os atuais e regrava (mais simples que diff incremental).
+    # Flush entre delete e insert é obrigatório: sem ele o SQLAlchemy pode
+    # emitir os INSERTs antes dos DELETEs no mesmo flush e violar o
+    # UniqueConstraint(turma_id, data) quando datas iguais são re-salvas.
     for enc in list(turma.encontros):
         db.session.delete(enc)
+    db.session.flush()
     for i, d in enumerate(datas_validas):
         db.session.add(EncontroTurma(turma_id=turma.id, data=d, ordem=i))
 
