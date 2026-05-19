@@ -348,7 +348,13 @@ class MatriculaTurma(db.Model):
     data_saida = db.Column(db.Date, nullable=True)
     observacao = db.Column(db.Text, nullable=True)
 
-    aluno = db.relationship('Aluno', backref=db.backref('matriculas_turma', lazy='dynamic',
+    # lazy='select' (default) em vez de 'dynamic' pra permitir eager-load
+    # via joinedload/selectinload nas rotas que listam muitos alunos
+    # (ex: /admin/alunos). O acesso a aluno.matriculas_turma continua igual
+    # (devolve lista), mas as properties Aluno.vinculos_ativos /
+    # vinculos_historico / status_derivado deixam de disparar 1 query por
+    # aluno no template.
+    aluno = db.relationship('Aluno', backref=db.backref('matriculas_turma',
                                                        cascade='all, delete-orphan'))
     turma = db.relationship('Turma', backref=db.backref('matriculas', lazy='dynamic'))
 

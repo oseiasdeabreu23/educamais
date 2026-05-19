@@ -157,13 +157,14 @@ def alunos_ativos_na_turma(turma, incluir_inativos=False):
 
 
 def _aluno_esta_ativo(aluno):
-    """Versão Python do _aluno_ativo_clausula — pra filtragem em memória."""
+    """Versão Python do _aluno_ativo_clausula — pra filtragem em memória.
+
+    Assume ``aluno.matriculas_turma`` como lista (lazy='select'). O caso de
+    backref dinâmico legado ficou pra trás.
+    """
     if any(m.status == 'ativo' for m in aluno.matriculas_turma):
         return True
-    sem_matricula = aluno.matriculas_turma.count() == 0 if hasattr(
-        aluno.matriculas_turma, 'count'
-    ) else len(list(aluno.matriculas_turma)) == 0
-    return sem_matricula and aluno.status == 'ativo'
+    return not aluno.matriculas_turma and aluno.status == 'ativo'
 
 
 def media_turma(turma, incluir_inativos=False):

@@ -284,7 +284,17 @@ def alunos():
     filtro_status = request.args.get('status', '')
     turmas = Turma.query.order_by(Turma.nome).all()
     cursos = Curso.query.order_by(Curso.titulo).all()
-    q = Aluno.query
+    # Eager-load batched: cada relação vira UMA query com IN(...).
+    # O template usa em cada linha (e dentro do modal):
+    #   - a.turmas_ativas / a.vinculos_historico → matriculas_turma + turma
+    #   - a.matriculas (curso) + m.curso.titulo → matriculas (curso) + curso
+    # Sem isso, são ~10 queries por aluno.
+    from sqlalchemy.orm import selectinload, joinedload
+    q = Aluno.query.options(
+        selectinload(Aluno.matriculas_turma).joinedload(MatriculaTurma.turma),
+        selectinload(Aluno.matriculas).joinedload(MatriculaCurso.curso),
+        joinedload(Aluno.turma),
+    )
 
     if filtro_status in STATUS_ALUNO_CHOICES:
         # Filtro via status derivado das MatriculaTurma.
