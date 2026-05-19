@@ -36,6 +36,23 @@ def create_app():
     app.config['SQLALCHEMY_DATABASE_URI'] = _normalize_db_url(
         os.getenv('DATABASE_URL', 'sqlite:///educamais.db'))
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+    # Pool de conexões — só aplicado a Postgres (Supabase). Em SQLite local
+    # esses parâmetros são ignorados pelo SQLAlchemy.
+    # - pool_pre_ping: testa conexões mortas antes de usar (Supabase mata
+    #   conexões idle ~10 min — sem isso, primeiro request após idle paga
+    #   reconexão TLS + auth, ~200-400ms).
+    # - pool_recycle: recicla conexões a cada 5 min, evita pegar conexões
+    #   prestes a serem mortas pelo Supabase.
+    # - pool_size/max_overflow: 5+10 = 15 conexões por processo. Em Vercel
+    #   serverless, use o pooler do Supabase (porta 6543, modo transaction)
+    #   pra esses limites não estourarem.
+    if app.config['SQLALCHEMY_DATABASE_URI'].startswith('postgresql'):
+        app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+            'pool_pre_ping': True,
+            'pool_recycle': 300,
+            'pool_size': 5,
+            'max_overflow': 10,
+        }
     # 5 MB cobre comprovantes; logos têm validação manual de 2 MB no upload
     app.config['MAX_CONTENT_LENGTH'] = 5 * 1024 * 1024
 

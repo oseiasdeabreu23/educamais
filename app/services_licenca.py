@@ -48,6 +48,13 @@ _HTTP_RETRIES = 2
 _HTTP_BACKOFF_S = 0.6
 
 
+# Cache em memória (escopo do processo). Em Vercel/Fluid Compute cada
+# instância da Function reutiliza este dict entre requests — o que evita
+# que cada request faça POST no painel mesmo quando o cache em disco não
+# pode ser gravado (filesystem readonly).
+_MEM_CACHE = {'data': None, 'expira_em': None}
+
+
 # --------------------------------------------------------------------------- #
 # Caminhos auxiliares
 # --------------------------------------------------------------------------- #
@@ -146,8 +153,32 @@ def _gravar_cache(payload):
         p.write_text(json.dumps(payload, ensure_ascii=False, indent=2),
                      encoding='utf-8')
     except OSError as e:
-        # Em Vercel o instance/ pode estar readonly — não fatal, só perde cache.
+        # Em Vercel o instance/ pode estar readonly — não fatal, só perde
+        # o cache em disco (o cache em memória cobre o caso comum).
         current_app.logger.warning('[licenca] não pude gravar cache: %s', e)
+
+
+def _ler_cache_mem():
+    """Retorna o cache em memória se ainda dentro do TTL, senão None."""
+    exp = _MEM_CACHE.get('expira_em')
+    if exp and datetime.utcnow() < exp:
+        return _MEM_CACHE.get('data')
+    return None
+
+
+def _gravar_cache_mem(estado):
+    """Grava no cache em memória usando o TTL configurado no app."""
+    try:
+        horas = int(current_app.config.get('PAINEL_LICENCA_CACHE_HORAS', 6) or 6)
+    except Exception:
+        horas = 6
+    _MEM_CACHE['data'] = estado
+    _MEM_CACHE['expira_em'] = datetime.utcnow() + timedelta(hours=horas)
+
+
+def _invalidar_cache_mem():
+    _MEM_CACHE['data'] = None
+    _MEM_CACHE['expira_em'] = None
 
 
 def _parse_iso(s):
@@ -165,7 +196,9 @@ def info_licenca():
 
 
 def invalidar_cache():
-    """Apaga o arquivo de cache. Use após mudar config (api_key/documento)."""
+    """Apaga o cache em memória E o arquivo de cache. Use após mudar
+    config (api_key/documento/modo) ou para forçar revalidação."""
+    _invalidar_cache_mem()
     p = _cache_path()
     try:
         if p.exists():
@@ -393,22 +426,29 @@ def validar_licenca(force_refresh=False):
 
     Fluxo:
     1. Se ``PAINEL_LICENCA_DEBUG_RESULTADO`` setado → resposta sintética.
-    2. Se config faltando → ``sem_configuracao``.
-    3. Se cache dentro do TTL e ``force_refresh=False`` → usa cache.
-    4. Tenta chamar painel (com retries).
-    5. Em falha de rede: usa cache mesmo expirado se ainda no *grace*;
+    2. Cache em memória (processo) válido → usa direto. Crítico em
+       serverless (Vercel) onde o cache em disco geralmente não persiste.
+    3. Se config faltando → ``sem_configuracao``.
+    4. Cache em disco dentro do TTL → usa (e re-popula o em memória).
+    5. Tenta chamar painel (com retries).
+    6. Em falha de rede: usa cache mesmo expirado se ainda no *grace*;
        senão devolve ``offline_grace_expirado``.
     """
     debug = _resposta_debug()
     if debug is not None:
         return debug
 
+    if not force_refresh:
+        em_memoria = _ler_cache_mem()
+        if em_memoria is not None:
+            return em_memoria
+
     cfg = _config_obrigatoria()
     if cfg is None:
         current_app.logger.warning(
             '[licenca] env vars do painel não configuradas — '
             'rodando como sem_configuracao.')
-        return {
+        estado_sem_cfg = {
             'valido': False,
             'resultado': SEM_CONFIGURACAO,
             'fonte': 'config',
@@ -418,11 +458,15 @@ def validar_licenca(force_refresh=False):
                          '(API key, documento e tipo de cliente).'),
             'resposta_painel': None,
         }
+        # Cacheia "sem_configuracao" em memória pra não relogar a cada request.
+        _gravar_cache_mem(estado_sem_cfg)
+        return estado_sem_cfg
 
     cache = _ler_cache()
     if (not force_refresh) and _cache_dentro_do_ttl(cache):
         cache = dict(cache)
         cache['fonte'] = 'cache'
+        _gravar_cache_mem(cache)
         current_app.logger.info(
             '[licenca] ok (resultado=%s, fonte=cache)', cache.get('resultado'))
         return cache
@@ -447,10 +491,13 @@ def validar_licenca(force_refresh=False):
             grace['fonte'] = 'cache_grace'
             grace['mensagem'] = ('Painel inacessível; usando última validação '
                                  'em grace period.')
+            # Cacheia em memória pra não tentar HTTP a cada request enquanto
+            # o painel estiver fora do ar.
+            _gravar_cache_mem(grace)
             return grace
         current_app.logger.error(
             '[licenca] painel inacessível e grace expirado: %s', e)
-        return {
+        estado_grace_exp = {
             'valido': False,
             'resultado': GRACE_EXPIRADO,
             'fonte': 'grace_expirado',
@@ -460,9 +507,12 @@ def validar_licenca(force_refresh=False):
                          'grace_dias configurado.'),
             'resposta_painel': None,
         }
+        _gravar_cache_mem(estado_grace_exp)
+        return estado_grace_exp
 
     estado = _construir_resultado(resp, fonte='api')
     _gravar_cache(estado)
+    _gravar_cache_mem(estado)
     nivel = current_app.logger.info if estado['valido'] else current_app.logger.warning
     nivel('[licenca] %s (resultado=%s, fonte=api)',
           'ok' if estado['valido'] else 'inválida', estado['resultado'])
