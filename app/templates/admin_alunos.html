@@ -299,7 +299,7 @@
               {% endif %}
             </td>
             <td>
-              {% set st = a.status_derivado %}
+              {% set st = status_map.get(a.id) or (a.status or 'sem_vinculo') %}
               {% set cls = {'ativo':'badge-ok','evadido':'badge-warn','formado':'badge-primary','transferido':'badge-info','sem_vinculo':''} %}
               <span class="badge {{ cls.get(st, '') }}">{{ st|capitalize }}</span>
             </td>

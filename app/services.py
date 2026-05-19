@@ -1,6 +1,6 @@
 import re
 from datetime import date, timedelta
-from sqlalchemy import extract, or_, and_
+from sqlalchemy import extract, or_, and_, func
 from app.models import Aluno, Nota, Frequencia, Observacao, MatriculaTurma, Turma
 from app import db
 
@@ -169,23 +169,27 @@ def _aluno_esta_ativo(aluno):
 def media_turma(turma, incluir_inativos=False):
     """Média da turma com base nas notas dos alunos com matrícula ativa nela.
 
-    "Matrícula ativa na turma" = MatriculaTurma(aluno, turma, status='ativo').
-    Quando ``incluir_inativos=True``, considera também matrículas encerradas
-    (formado/evadido/transferido) — útil para relatórios históricos.
+    Uma única query agregada (AVG(nota.valor)) sobre o JOIN
+    Nota ⋈ MatriculaTurma; sem lazy load. Quando a turma não tem nenhuma
+    MatriculaTurma (caso raro pós-backfill), cai no caminho legacy via
+    ``turma.alunos``.
     """
-    q = MatriculaTurma.query.filter(MatriculaTurma.turma_id == turma.id)
+    q = db.session.query(func.avg(Nota.valor)).join(
+        MatriculaTurma, MatriculaTurma.aluno_id == Nota.aluno_id
+    ).filter(MatriculaTurma.turma_id == turma.id)
     if not incluir_inativos:
         q = q.filter(MatriculaTurma.status == 'ativo')
-    alunos = [m.aluno for m in q.all()]
+    media = q.scalar()
+    if media is not None:
+        return round(float(media), 2)
 
-    # Fallback: turma sem nenhuma matrícula migrada ainda — usa relação legacy
-    if not alunos:
-        alunos = [a for a in turma.alunos
-                  if incluir_inativos or (a.status or 'ativo') == 'ativo']
-
+    # Fallback legacy: turma sem nenhuma MatriculaTurma — soma direto via
+    # relação Aluno.turma_id. Some assim que todos os alunos legados forem
+    # migrados (fase 5).
+    alunos = [a for a in turma.alunos
+              if incluir_inativos or (a.status or 'ativo') == 'ativo']
     if not alunos:
         return 0
-
     soma = 0
     n = 0
     for aluno in alunos:
@@ -193,6 +197,24 @@ def media_turma(turma, incluir_inativos=False):
             soma += nota.valor
             n += 1
     return round(soma / n, 2) if n > 0 else 0
+
+
+def medias_por_turma(incluir_inativos=False):
+    """Retorna ``{turma_id: media}`` para TODAS as turmas em UMA única query.
+
+    Substitui o padrão ``[media_turma(t) for t in turmas]`` (1 query por turma
+    + N lazy loads) por um agregado com ``GROUP BY``. Turma sem nenhuma nota
+    de aluno ativo fica ausente do dict — caller decide o fallback.
+    """
+    q = db.session.query(
+        MatriculaTurma.turma_id,
+        func.avg(Nota.valor),
+    ).join(Nota, Nota.aluno_id == MatriculaTurma.aluno_id)
+    if not incluir_inativos:
+        q = q.filter(MatriculaTurma.status == 'ativo')
+    q = q.group_by(MatriculaTurma.turma_id)
+    return {turma_id: round(float(media), 2)
+            for turma_id, media in q.all() if media is not None}
 
 
 def frequencia_geral(incluir_inativos=False):
@@ -210,13 +232,59 @@ def frequencia_geral(incluir_inativos=False):
 
 
 def alunos_baixo_desempenho(limite=5.5, incluir_inativos=False):
-    alunos = _alunos_filtro_status(Aluno.query, incluir_inativos).all()
-    selecionados = []
-    for aluno in alunos:
-        media = media_aluno(aluno)
-        if media and media < limite:
-            selecionados.append({'aluno': aluno, 'media': media})
-    return selecionados
+    """Lista alunos ativos com média de notas abaixo de ``limite``.
+
+    Uma única query: subquery agregada (AVG por aluno) com HAVING, juntada
+    a Aluno e filtrada pelo critério de "ativo". Antes era N+1 (1 query pra
+    listar ativos + 1 acesso lazy a ``aluno.notas`` por aluno).
+    """
+    media_subq = (
+        db.session.query(
+            Nota.aluno_id.label('aluno_id'),
+            func.avg(Nota.valor).label('media'),
+        )
+        .group_by(Nota.aluno_id)
+        .having(func.avg(Nota.valor) < limite)
+        .subquery()
+    )
+    q = db.session.query(Aluno, media_subq.c.media).join(
+        media_subq, Aluno.id == media_subq.c.aluno_id
+    )
+    if not incluir_inativos:
+        q = q.filter(_aluno_ativo_clausula())
+    return [{'aluno': aluno, 'media': round(float(media), 2)}
+            for aluno, media in q.all()]
+
+
+def status_derivado_por_aluno(aluno_ids):
+    """Retorna ``{aluno_id: status_derivado}`` em UMA única query.
+
+    Substitui o acesso N+1 a ``Aluno.status_derivado`` (que dispara uma query
+    no backref ``matriculas_turma`` dinâmico por linha) ao listar muitos
+    alunos. Aluno sem nenhuma MatriculaTurma fica ausente do dict — caller
+    aplica fallback pra ``Aluno.status`` legacy.
+    """
+    if not aluno_ids:
+        return {}
+    rows = db.session.query(
+        MatriculaTurma.aluno_id,
+        MatriculaTurma.status,
+        MatriculaTurma.data_saida,
+        MatriculaTurma.data_matricula,
+    ).filter(MatriculaTurma.aluno_id.in_(aluno_ids)).all()
+
+    por_aluno = {}
+    for aluno_id, status, ds, dm in rows:
+        por_aluno.setdefault(aluno_id, []).append((status, ds or dm))
+
+    resultado = {}
+    for aluno_id, matriculas in por_aluno.items():
+        if any(s == 'ativo' for s, _ in matriculas):
+            resultado[aluno_id] = 'ativo'
+        else:
+            matriculas.sort(key=lambda x: x[1] or date.min, reverse=True)
+            resultado[aluno_id] = matriculas[0][0]
+    return resultado
 
 
 def media_aluno(aluno):

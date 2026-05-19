@@ -14,7 +14,8 @@ from app.models import (User, Aluno, Responsavel, Professor, Turma, Disciplina,
                         Aviso, AvisoLeitura, Atividade, MatriculaTurma,
                         Nota, Frequencia, Observacao, AlunoResponsavel,
                         ProgressoVideoaula)
-from app.services import (media_turma, frequencia_geral, alunos_baixo_desempenho,
+from app.services import (media_turma, medias_por_turma, frequencia_geral,
+                          alunos_baixo_desempenho, status_derivado_por_aluno,
                           cpf_valido, cep_valido, uf_valida, so_digitos, UFS_BR,
                           aniversariantes, ESCOPOS_ANIVERSARIO,
                           matricular_em_turma, formar_em_turma,
@@ -62,8 +63,13 @@ def admin_required(func):
 @requires('dashboard.ver')
 def dashboard():
     turmas = Turma.query.all()
+    # medias_por_turma() roda 1 query agregada para todas as turmas,
+    # evitando o N+1 do padrão [media_turma(t) for t in turmas].
+    medias_map = medias_por_turma()
+    medias = [medias_map.get(t.id, 0) for t in turmas]
     relatorios = {
-        'media_geral': round(sum([media_turma(t) for t in turmas]) / (len(turmas) or 1), 2),
+        'media_geral': round(sum(medias) / (len(turmas) or 1), 2),
+        'medias_por_turma': medias_map,
         'frequencia': frequencia_geral(),
         'baixo_desempenho': alunos_baixo_desempenho(),
     }
@@ -305,11 +311,15 @@ def alunos():
             ))
 
     alunos = q.order_by(Aluno.nome).all()
+    # Precomputa status_derivado em UMA query para evitar N+1 ao renderizar
+    # (a property faz iteração sobre o backref dinâmico matriculas_turma).
+    status_map = status_derivado_por_aluno([a.id for a in alunos])
     return render_template('admin_alunos.html',
                            alunos=alunos, turmas=turmas, cursos=cursos,
                            sexos=SEXOS_CHOICES, cor_racas=COR_RACA_CHOICES,
                            status_choices=STATUS_ALUNO_CHOICES, ufs=UFS_BR,
-                           filtro_status=filtro_status)
+                           filtro_status=filtro_status,
+                           status_map=status_map)
 
 
 @admin_bp.route('/alunos/editar/<int:id>', methods=['POST'])
