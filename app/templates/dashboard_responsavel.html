@@ -38,7 +38,15 @@
         <div>
           <div style="font-size:18px; font-weight:700; font-family: var(--font-display)">{{ item.aluno.nome }}</div>
           <div class="d-flex align-items-center gap-2 mt-1" style="font-size:12.5px; color:var(--text-2)">
-            <span class="badge badge-primary">{{ item.aluno.turma.nome if item.aluno.turma else 'Sem turma' }}</span>
+            {% if item.aluno.turmas_ativas %}
+              {% for t in item.aluno.turmas_ativas %}
+              <span class="badge badge-primary">{{ t.nome }}</span>
+              {% endfor %}
+            {% elif item.aluno.turma %}
+              <span class="badge badge-primary">{{ item.aluno.turma.nome }}</span>
+            {% else %}
+              <span class="badge">Sem turma</span>
+            {% endif %}
           </div>
         </div>
       </div>

@@ -1,0 +1,259 @@
+{% extends 'base.html' %}
+{% block page_title %}Vínculos de turma · {{ aluno.nome }}{% endblock %}
+{% block page_subtitle %}
+<div class="topbar-sub">
+  <a href="{{ url_for('admin.alunos') }}" class="dim">← Voltar para alunos</a>
+</div>
+{% endblock %}
+{% block content %}
+
+{% set STATUS_CLS = {'ativo':'badge-ok', 'formado':'badge-primary',
+                     'evadido':'badge-warn', 'transferido':'badge-info'} %}
+
+<div class="row g-3">
+
+  {# ── Card lateral: ficha resumida do aluno ── #}
+  <div class="col-lg-4">
+    <div class="card">
+      <div class="card-h">
+        <div class="d-flex align-items-center gap-2">
+          <div class="avatar-sm" style="width:42px; height:42px; font-size:16px">
+            {{ aluno.nome[0].upper() }}
+          </div>
+          <div>
+            <div class="card-title" style="margin:0">{{ aluno.nome }}</div>
+            <div class="card-sub">matrícula #{{ '%04d' % aluno.id }}</div>
+          </div>
+        </div>
+      </div>
+      <div class="stack-sm" style="font-size:13.5px">
+        {% if aluno.idade %}
+        <div><span class="dim">Idade:</span> <strong>{{ aluno.idade }} anos</strong></div>
+        {% endif %}
+        {% if aluno.cpf %}
+        <div><span class="dim">CPF:</span> {{ aluno.cpf_formatado }}</div>
+        {% endif %}
+        {% if aluno.telefone %}
+        <div><span class="dim">Telefone:</span> {{ aluno.telefone }}</div>
+        {% endif %}
+        <div>
+          <span class="dim">Status atual:</span>
+          {% set st = aluno.status_derivado %}
+          <span class="badge {{ STATUS_CLS.get(st, '') }}">{{ st|capitalize }}</span>
+        </div>
+        <div>
+          <span class="dim">Vínculos ativos:</span>
+          <strong>{{ aluno.vinculos_ativos|length }}</strong>
+        </div>
+        <div>
+          <span class="dim">Histórico:</span>
+          <strong>{{ aluno.vinculos_historico|length }}</strong>
+        </div>
+      </div>
+    </div>
+
+    {# ── Nova matrícula ── #}
+    {% if pode('aluno.editar') %}
+    <div class="card mt-3">
+      <div class="card-h">
+        <div>
+          <div class="card-title">Nova matrícula</div>
+          <div class="card-sub">Adicionar vínculo em outra turma</div>
+        </div>
+        <span class="qa-icon" style="background:rgba(16,185,129,.15); color:#10b981">
+          <i class="bi bi-plus-lg"></i>
+        </span>
+      </div>
+
+      {% if turmas_disponiveis %}
+      <form method="POST" class="stack-md">
+        <input type="hidden" name="action" value="matricular">
+        <div>
+          <label class="label">Turma</label>
+          <select class="select" name="turma_id" required>
+            <option value="">Selecione...</option>
+            {% for t in turmas_disponiveis %}
+            <option value="{{ t.id }}">{{ t.nome }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="label">Observação (opcional)</label>
+          <input class="input" type="text" name="observacao"
+                 placeholder="Ex.: turma da catequese 2026">
+        </div>
+        <button type="submit" class="btn btn-primary w-100">
+          <i class="bi bi-check-lg"></i> Matricular
+        </button>
+      </form>
+      {% else %}
+      <div class="dim" style="font-size:13.5px">
+        Aluno já está ativo em todas as turmas existentes.
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
+  </div>
+
+  {# ── Painel principal: vínculos ativos + histórico ── #}
+  <div class="col-lg-8">
+
+    {# Ativos #}
+    <div class="card no-pad">
+      <div class="card-h" style="padding:20px 20px 16px; margin:0">
+        <div>
+          <div class="card-title">
+            <i class="bi bi-check-circle-fill" style="color:var(--ok)"></i>
+            Vínculos ativos
+          </div>
+          <div class="card-sub">Turmas que o aluno está cursando agora</div>
+        </div>
+        <span class="badge badge-ok">{{ aluno.vinculos_ativos|length }}</span>
+      </div>
+
+      {% if aluno.vinculos_ativos %}
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Turma</th>
+            <th>Matriculado em</th>
+            <th>Observação</th>
+            {% if pode('aluno.editar') %}<th style="width:260px">Ações</th>{% endif %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for m in aluno.vinculos_ativos %}
+          <tr>
+            <td><strong>{{ m.turma.nome }}</strong></td>
+            <td class="dim">{{ m.data_matricula.strftime('%d/%m/%Y') }}</td>
+            <td class="dim" style="font-size:12.5px">
+              {{ m.observacao or '—' }}
+            </td>
+            {% if pode('aluno.editar') %}
+            <td>
+              <div class="table-actions">
+                <button class="btn btn-ghost btn-sm" data-bs-toggle="modal"
+                        data-bs-target="#actModal{{ m.id }}-formar"
+                        title="Marcar como formado">
+                  <i class="bi bi-mortarboard-fill" style="color:var(--primary)"></i>
+                </button>
+                <button class="btn btn-ghost btn-sm" data-bs-toggle="modal"
+                        data-bs-target="#actModal{{ m.id }}-evadir"
+                        title="Marcar como evadido">
+                  <i class="bi bi-x-circle-fill" style="color:var(--warn)"></i>
+                </button>
+                <button class="btn btn-ghost btn-sm" data-bs-toggle="modal"
+                        data-bs-target="#actModal{{ m.id }}-transferir"
+                        title="Marcar como transferido">
+                  <i class="bi bi-arrow-right-circle-fill" style="color:var(--text-3)"></i>
+                </button>
+              </div>
+            </td>
+            {% endif %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="empty-state">
+        <i class="bi bi-circle"></i>
+        <p>Nenhum vínculo ativo. {% if pode('aluno.editar') %}Use o formulário ao lado para matricular em uma turma.{% endif %}</p>
+      </div>
+      {% endif %}
+    </div>
+
+    {# Histórico #}
+    <div class="card no-pad mt-3">
+      <div class="card-h" style="padding:20px 20px 16px; margin:0">
+        <div>
+          <div class="card-title">
+            <i class="bi bi-clock-history"></i>
+            Histórico
+          </div>
+          <div class="card-sub">Turmas concluídas, evadidas ou transferidas</div>
+        </div>
+        <span class="badge">{{ aluno.vinculos_historico|length }}</span>
+      </div>
+
+      {% if aluno.vinculos_historico %}
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Turma</th>
+            <th>Status</th>
+            <th>Entrada</th>
+            <th>Saída</th>
+            <th>Observação</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for m in aluno.vinculos_historico %}
+          <tr>
+            <td><strong>{{ m.turma.nome }}</strong></td>
+            <td>
+              <span class="badge {{ STATUS_CLS.get(m.status, '') }}">
+                {{ m.status|capitalize }}
+              </span>
+            </td>
+            <td class="dim">{{ m.data_matricula.strftime('%d/%m/%Y') }}</td>
+            <td class="dim">{{ m.data_saida.strftime('%d/%m/%Y') if m.data_saida else '—' }}</td>
+            <td class="dim" style="font-size:12.5px">{{ m.observacao or '—' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="empty-state">
+        <i class="bi bi-archive"></i>
+        <p>Sem histórico ainda — o aluno nunca formou, evadiu ou foi transferido.</p>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+{# ── Modais de ação por matrícula ── #}
+{% if pode('aluno.editar') %}
+{% set ACTIONS = [
+  ('formar', 'Marcar como formado', 'Confirma que o aluno concluiu esta turma?', 'Formar', 'btn-primary'),
+  ('evadir', 'Marcar como evadido', 'Confirma que o aluno saiu da turma antes de concluir?', 'Evadir', 'btn-warning'),
+  ('transferir', 'Marcar como transferido', 'Confirma que o aluno foi transferido?', 'Transferir', 'btn-ghost'),
+] %}
+{% for m in aluno.vinculos_ativos %}
+  {% for act_key, act_title, act_msg, act_btn, act_class in ACTIONS %}
+  <div class="modal fade" id="actModal{{ m.id }}-{{ act_key }}" tabindex="-1">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <form method="POST">
+          <input type="hidden" name="action" value="{{ act_key }}">
+          <input type="hidden" name="matricula_id" value="{{ m.id }}">
+          <div class="modal-header">
+            <h5 class="modal-title">{{ act_title }} · {{ m.turma.nome }}</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal">&times;</button>
+          </div>
+          <div class="modal-body stack-md">
+            <p class="dim" style="margin:0">{{ act_msg }}</p>
+            <div>
+              <label class="label">Data da saída</label>
+              <input class="input" type="date" name="data_saida"
+                     value="{{ hoje.isoformat() }}">
+            </div>
+            <div>
+              <label class="label">Observação (opcional)</label>
+              <textarea class="input" name="observacao" rows="2"
+                        placeholder="Ex.: motivo, ano de formação, destino"></textarea>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-ghost" data-bs-dismiss="modal">Cancelar</button>
+            <button type="submit" class="btn {{ act_class }}">{{ act_btn }}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+{% endfor %}
+{% endif %}
+
+{% endblock %}

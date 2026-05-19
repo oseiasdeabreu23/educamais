@@ -1,0 +1,122 @@
+{% extends 'base.html' %}
+{% block page_title %}Aniversariantes{% endblock %}
+{% block page_subtitle %}<div class="topbar-sub">Alunos com aniversário no período</div>{% endblock %}
+{% block content %}
+
+{% set MESES = {1:'janeiro', 2:'fevereiro', 3:'março', 4:'abril', 5:'maio',
+                6:'junho', 7:'julho', 8:'agosto', 9:'setembro',
+                10:'outubro', 11:'novembro', 12:'dezembro'} %}
+{% set DIAS_SEM = {0:'segunda', 1:'terça', 2:'quarta', 3:'quinta', 4:'sexta',
+                   5:'sábado', 6:'domingo'} %}
+
+<div class="card mb-3">
+  <div class="d-flex align-items-center flex-wrap" style="gap:8px">
+    <a class="btn {{ 'btn-primary' if escopo == 'dia' else 'btn-ghost' }}"
+       href="{{ url_for('admin.aniversariantes_view', escopo='dia') }}">
+      <i class="bi bi-balloon-fill"></i> Hoje
+    </a>
+    <a class="btn {{ 'btn-primary' if escopo == 'semana' else 'btn-ghost' }}"
+       href="{{ url_for('admin.aniversariantes_view', escopo='semana') }}">
+      <i class="bi bi-calendar-week"></i> Esta semana
+    </a>
+    <a class="btn {{ 'btn-primary' if escopo == 'mes' else 'btn-ghost' }}"
+       href="{{ url_for('admin.aniversariantes_view', escopo='mes') }}">
+      <i class="bi bi-calendar-month"></i> Este mês
+    </a>
+    <div class="ms-auto dim" style="font-size:13px">
+      <i class="bi bi-people-fill"></i>
+      {{ lista|length }} {{ 'aluno' if lista|length == 1 else 'alunos' }}
+      {% if escopo == 'dia' %}
+        fazendo aniversário hoje
+      {% elif escopo == 'semana' %}
+        nesta semana
+      {% else %}
+        em {{ MESES[hoje.month] }}
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+{% if lista %}
+<div class="card">
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Aluno</th>
+        <th>Turma</th>
+        <th>Aniversário</th>
+        <th>Quando</th>
+        <th class="text-end">Idade</th>
+        <th>Contato</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in lista %}
+      {% set aluno = item.aluno %}
+      {% set hoje_flag = (item.dias_para == 0) %}
+      <tr>
+        <td>
+          <div class="fw-600">{{ aluno.nome }}</div>
+          {% if hoje_flag %}
+          <span class="badge badge-warn"><i class="bi bi-stars"></i> Hoje!</span>
+          {% endif %}
+        </td>
+        <td class="dim">{{ aluno.turma.nome if aluno.turma else '—' }}</td>
+        <td>
+          <span class="fw-600">{{ '%02d/%02d' % (item.dia, item.mes) }}</span>
+          {% set wd = item.data_aniversario_ano.weekday() %}
+          <div class="dim" style="font-size:12px">
+            {% if wd >= 5 %}{{ DIAS_SEM[wd] }}{% else %}{{ DIAS_SEM[wd] }}-feira{% endif %}
+          </div>
+        </td>
+        <td>
+          {% if item.dias_para == 0 %}
+            <span class="badge badge-warn">Hoje</span>
+          {% elif item.dias_para == 1 %}
+            <span class="badge badge-info">Amanhã</span>
+          {% elif item.dias_para > 1 %}
+            <span class="dim">em {{ item.dias_para }} dias</span>
+          {% else %}
+            <span class="dim">há {{ item.dias_para|abs }} dia{{ 's' if item.dias_para|abs != 1 else '' }}</span>
+          {% endif %}
+        </td>
+        <td class="text-end">
+          <span class="fw-600">{{ item.idade_que_faz }}</span>
+          <span class="dim" style="font-size:12px">anos</span>
+        </td>
+        <td class="dim" style="font-size:13px">
+          {{ aluno.telefone if aluno.telefone else '—' }}
+        </td>
+        <td class="text-end">
+          {% if aluno.telefone %}
+          {% set tel_limpo = aluno.telefone | replace('(','') | replace(')','') | replace(' ','') | replace('-','') | replace('+','') %}
+          <a href="https://wa.me/55{{ tel_limpo }}?text=Parabéns%2C%20{{ aluno.nome | urlencode }}%21%20Hoje%20é%20um%20dia%20especial%2C%20que%20Deus%20te%20abençoe%20muito.%20—%20Instituto%20Arvorecer"
+             target="_blank" class="btn btn-ghost btn-sm" title="Enviar mensagem">
+            <i class="bi bi-whatsapp"></i>
+          </a>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="card">
+  <div class="empty-state">
+    <i class="bi bi-balloon"></i>
+    <p>
+      {% if escopo == 'dia' %}
+        Nenhum aluno faz aniversário hoje.
+      {% elif escopo == 'semana' %}
+        Nenhum aniversariante nesta semana.
+      {% else %}
+        Nenhum aniversariante em {{ MESES[hoje.month] }}.
+      {% endif %}
+    </p>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}

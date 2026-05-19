@@ -72,6 +72,18 @@
             <span class="nav-icon"><i class="bi bi-person-fill"></i></span>
             <span>Alunos</span>
           </a>
+          <a class="nav-item {% if request.endpoint == 'admin.aniversariantes_view' %}active{% endif %}"
+             href="{{ url_for('admin.aniversariantes_view') }}">
+            <span class="nav-icon"><i class="bi bi-balloon-fill"></i></span>
+            <span>Aniversariantes</span>
+          </a>
+          {% endif %}
+          {% if pode('relatorio.ver') %}
+          <a class="nav-item {% if request.endpoint in ('admin.relatorios',) %}active{% endif %}"
+             href="{{ url_for('admin.relatorios') }}">
+            <span class="nav-icon"><i class="bi bi-graph-up"></i></span>
+            <span>Relatórios</span>
+          </a>
           {% endif %}
           {% if pode('turma.ver') %}
           <a class="nav-item {% if request.endpoint in ('admin.turmas','admin.turma_detalhe') %}active{% endif %}"

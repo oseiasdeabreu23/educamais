@@ -5,7 +5,7 @@
 <div class="page-header d-flex justify-content-between align-items-start flex-wrap gap-3">
   <div>
     <h2>Boletim Escolar</h2>
-    <p>{{ aluno.nome }} · {{ aluno.turma.nome if aluno.turma else 'Sem turma' }}</p>
+    <p>{{ aluno.nome }} · {% if aluno.turmas_ativas %}{{ aluno.turmas_ativas | map(attribute='nome') | join(', ') }}{% elif aluno.turma %}{{ aluno.turma.nome }}{% else %}Sem turma{% endif %}</p>
   </div>
   <form method="GET" class="d-flex align-items-center gap-2">
     <label class="form-label mb-0 text-muted small">Ano:</label>

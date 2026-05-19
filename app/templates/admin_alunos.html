@@ -130,15 +130,51 @@
   <fieldset class="stack-md" style="border:0; padding:0; margin:16px 0 0">
     <legend class="card-title" style="font-size:14px; padding:0 0 8px">Vínculos</legend>
     <div class="row g-2">
-      <div class="col-md-6">
-        <label class="label">Turma</label>
-        <select class="select" name="turma_id">
-          <option value="">Sem turma</option>
+      {% if not is_edit %}
+      {# ── Criação: multi-select de turmas. Cada uma vira uma MatriculaTurma. ── #}
+      <div class="col-12">
+        <label class="label">
+          Turmas
+          <small class="dim">· marque uma ou mais</small>
+        </label>
+        <div class="row g-1">
           {% for t in turmas %}
-          <option value="{{ t.id }}" {% if is_edit and a.turma_id == t.id %}selected{% endif %}>{{ t.nome }}</option>
+          <div class="col-md-6">
+            <label class="d-flex align-items-center gap-2" style="cursor:pointer; padding:6px 0">
+              <input type="checkbox" name="turma_ids" value="{{ t.id }}">
+              <span>{{ t.nome }}</span>
+            </label>
+          </div>
+          {% else %}
+          <div class="col-12"><div class="dim">Nenhuma turma cadastrada ainda.</div></div>
           {% endfor %}
-        </select>
+        </div>
       </div>
+      {% else %}
+      {# ── Edição: vínculos são geridos em página dedicada. ── #}
+      <div class="col-12">
+        <label class="label">Turmas matriculadas</label>
+        <div class="d-flex flex-wrap align-items-center" style="gap:6px; padding:6px 0">
+          {% if a.turmas_ativas %}
+            {% for t in a.turmas_ativas %}
+            <span class="badge badge-ok">{{ t.nome }}</span>
+            {% endfor %}
+          {% else %}
+            <span class="dim">Sem vínculo ativo</span>
+          {% endif %}
+          {% if a.vinculos_historico %}
+          <span class="dim" style="font-size:12px">
+            · {{ a.vinculos_historico|length }} no histórico
+          </span>
+          {% endif %}
+        </div>
+        <a href="{{ url_for('admin.aluno_vinculos', id=a.id) }}"
+           class="btn btn-ghost btn-sm" target="_blank">
+          <i class="bi bi-pencil-square"></i> Gerenciar vínculos
+        </a>
+      </div>
+      {% endif %}
+
       <div class="col-md-6">
         <label class="label">Mensalidade padrão (R$)</label>
         <input class="input" name="mensalidade_padrao" type="text" placeholder="0,00"
@@ -238,10 +274,19 @@
             </td>
             <td class="dim d-none d-md-table-cell">{{ a.idade }} anos</td>
             <td class="d-none d-md-table-cell">
-              {% if a.turma %}
+              {% if a.turmas_ativas %}
+                {% for t in a.turmas_ativas %}
+                <span class="badge badge-primary" style="margin-right:4px">{{ t.nome }}</span>
+                {% endfor %}
+              {% elif a.turma %}
                 <span class="badge badge-primary">{{ a.turma.nome }}</span>
               {% else %}
                 <span class="dim">—</span>
+              {% endif %}
+              {% if a.vinculos_historico %}
+              <div class="dim" style="font-size:11px">
+                <i class="bi bi-clock-history"></i> {{ a.vinculos_historico|length }} no histórico
+              </div>
               {% endif %}
             </td>
             <td class="d-none d-lg-table-cell">
@@ -254,12 +299,18 @@
               {% endif %}
             </td>
             <td>
-              {% set st = a.status or 'ativo' %}
-              {% set cls = {'ativo':'badge-ok','evadido':'badge-warn','formado':'badge-primary'} %}
+              {% set st = a.status_derivado %}
+              {% set cls = {'ativo':'badge-ok','evadido':'badge-warn','formado':'badge-primary','transferido':'badge-info','sem_vinculo':''} %}
               <span class="badge {{ cls.get(st, '') }}">{{ st|capitalize }}</span>
             </td>
             <td>
               <div class="table-actions">
+                {% if pode('aluno.ver') %}
+                <a href="{{ url_for('admin.aluno_vinculos', id=a.id) }}"
+                   class="btn btn-ghost btn-sm" title="Vínculos de turma">
+                  <i class="bi bi-diagram-3"></i>
+                </a>
+                {% endif %}
                 {% if pode('financeiro.ver') %}
                 <a href="{{ url_for('admin.financeiro_plano', aluno_id=a.id) }}"
                    class="btn btn-ghost btn-sm" title="Plano de pagamento">

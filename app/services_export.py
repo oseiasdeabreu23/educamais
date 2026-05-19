@@ -445,3 +445,124 @@ def boletos_para_xlsx(boletos, mes, ano, nome_sistema='EducaMais'):
     wb.save(buf)
     buf.seek(0)
     return buf
+
+
+# --------------------------------------------------------------------------- #
+# Relatório de status dos alunos
+# --------------------------------------------------------------------------- #
+
+def relatorio_status_pdf(snapshot, filtro_turma=None,
+                         nome_instituicao='EducaMais'):
+    """Gera PDF com KPIs e tabelas a partir do snapshot de
+    ``services_relatorios.snapshot_completo``.
+
+    Sem gráficos por enquanto (decisão de Fase 4) — só KPIs e tabelas.
+    """
+    buf = BytesIO()
+    doc = SimpleDocTemplate(
+        buf, pagesize=A4,
+        leftMargin=1.5 * cm, rightMargin=1.5 * cm,
+        topMargin=1.5 * cm, bottomMargin=1.5 * cm,
+    )
+    styles = _estilos_base(nome_instituicao)
+    story = []
+
+    subtitulo = 'Recorte: ' + (filtro_turma if filtro_turma else 'todas as turmas')
+    _cabecalho(
+        story, styles, nome_instituicao,
+        'Relatório de Alunos · Status & Histórico',
+        subtitulo,
+    )
+
+    k = snapshot['kpis']
+
+    # ── KPIs ────────────────────────────────────────────────────────────
+    kpi_head = ['Ativos', 'Formados', 'Evadidos', 'Transferidos', 'Taxa de evasão']
+    kpi_vals = [str(k['ativos']), str(k['formados']),
+                str(k['evadidos']), str(k['transferidos']),
+                f"{k['taxa_evasao']}%"]
+    kpi_table = Table([kpi_head, kpi_vals],
+                      colWidths=[3.4 * cm, 3.4 * cm, 3.4 * cm, 3.4 * cm, 3.4 * cm])
+    kpi_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#f3f4f6')),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 9),
+        ('FONTSIZE', (0, 1), (-1, 1), 14),
+        ('FONTNAME', (0, 1), (-1, 1), 'Helvetica-Bold'),
+        ('TEXTCOLOR', (0, 1), (0, 1), colors.HexColor('#059669')),
+        ('TEXTCOLOR', (1, 1), (1, 1), colors.HexColor('#2563eb')),
+        ('TEXTCOLOR', (2, 1), (2, 1), colors.HexColor('#d97706')),
+        ('TEXTCOLOR', (3, 1), (3, 1), colors.HexColor('#64748b')),
+        ('TEXTCOLOR', (4, 1), (4, 1), colors.HexColor('#dc2626')),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('GRID', (0, 0), (-1, -1), 0.25, colors.HexColor('#d1d5db')),
+        ('TOPPADDING', (0, 0), (-1, -1), 8),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+    ]))
+    story.append(kpi_table)
+    story.append(Spacer(1, 0.3 * cm))
+    story.append(Paragraph(
+        f"Total cadastrado: <b>{k['total']}</b> aluno(s)"
+        + (f" · {k['sem_vinculo']} sem vínculo de turma" if k['sem_vinculo'] else ''),
+        styles['RodapeMeta']))
+    story.append(Spacer(1, 0.6 * cm))
+
+    # ── Detalhamento por turma ──────────────────────────────────────────
+    story.append(Paragraph('Distribuição por turma', styles['SubtituloRel']))
+    por_turma = snapshot.get('por_turma') or []
+    if por_turma:
+        rows = [['Turma', 'Ativos', 'Formados', 'Evadidos', 'Transf.', 'Total']]
+        for r in por_turma:
+            rows.append([
+                Paragraph(r['turma'].nome, styles['Normal']),
+                str(r['ativos']),
+                str(r['formados']),
+                str(r['evadidos']),
+                str(r['transferidos']),
+                str(r['total']),
+            ])
+        tbl = Table(
+            rows,
+            colWidths=[7.0 * cm, 2.0 * cm, 2.0 * cm, 2.0 * cm, 2.0 * cm, 2.0 * cm],
+            repeatRows=1,
+        )
+        estilo = _estilo_tabela_padrao()
+        estilo.add('ALIGN', (1, 0), (-1, -1), 'CENTER')
+        tbl.setStyle(estilo)
+        story.append(tbl)
+    else:
+        story.append(Paragraph('Nenhuma turma com matrículas no recorte.',
+                               styles['Normal']))
+
+    story.append(Spacer(1, 0.6 * cm))
+
+    # ── Histórico anual ─────────────────────────────────────────────────
+    story.append(Paragraph('Saídas por ano', styles['SubtituloRel']))
+    hist = snapshot.get('historico') or []
+    if hist:
+        rows = [['Ano', 'Formados', 'Evadidos', 'Transferidos', 'Total']]
+        for h in hist:
+            total = h['formados'] + h['evadidos'] + h['transferidos']
+            rows.append([
+                str(h['ano']),
+                str(h['formados']),
+                str(h['evadidos']),
+                str(h['transferidos']),
+                str(total),
+            ])
+        tbl = Table(
+            rows,
+            colWidths=[3.0 * cm, 3.0 * cm, 3.0 * cm, 3.5 * cm, 3.0 * cm],
+            repeatRows=1,
+        )
+        estilo = _estilo_tabela_padrao()
+        estilo.add('ALIGN', (0, 0), (-1, -1), 'CENTER')
+        tbl.setStyle(estilo)
+        story.append(tbl)
+    else:
+        story.append(Paragraph('Ainda não há saídas registradas.',
+                               styles['Normal']))
+
+    doc.build(story)
+    buf.seek(0)
+    return buf

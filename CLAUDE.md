@@ -12,10 +12,13 @@ Leia antes de qualquer alteração.
 acompanhem notas, frequência, atividades, alertas e cursos com videoaulas.
 O nome e a logo da plataforma são configuráveis pelo admin sem mexer no código.
 
-**Estado atual (2026-05-04):** funcional, testado localmente, com **redesign visual completo**
+**Estado atual (2026-05-19):** funcional, testado localmente, com **redesign visual completo**
 ("Sistema Arvorecer") e **módulo financeiro** (mensalidades, boletos, fluxo de caixa,
 inadimplentes) com integração ao Banco Cora em modo mock — ver seções *Design system*
-e *Financeiro e integração Cora* abaixo. Em fase de aprimoramento para implantação no instituto.
+e *Financeiro e integração Cora* abaixo. **Múltiplas matrículas de turma por aluno** com
+histórico (formado/evadido/transferido) — ver seção *Matrículas em turma* abaixo.
+**Aniversariantes** (diário/semanal/mensal) e **Relatórios** com KPIs, gráficos Chart.js
+e exportação PDF. Em fase de aprimoramento para implantação no instituto.
 
 ---
 
@@ -60,10 +63,13 @@ app/routes_admin.py       → blueprint prefixo /admin (inclui cursos e configur
 app/routes_professor.py   → blueprint prefixo /professor
 app/routes_responsavel.py → blueprint prefixo /responsavel
 app/routes_aluno.py       → blueprint prefixo /aluno
-app/services.py           → lógica de negócio pura (médias, alertas, frequência, embed_url)
+app/services.py           → lógica de negócio pura (médias, alertas, frequência, embed_url,
+                            aniversariantes, helpers de matrícula em turma)
 app/services_backup.py    → criar/restaurar/listar/excluir backups (zip do .db + uploads)
 app/services_financeiro.py→ regras do financeiro (mensalidades, boletos, KPIs, fluxo)
 app/services_cora.py      → cliente Cora (CoraMockClient, CoraRealClient, factory)
+app/services_relatorios.py→ snapshots de KPIs, distribuição por turma, histórico anual
+app/services_export.py    → geração de PDF/Excel (reportlab + openpyxl)
 app/static/css/style.css  → design system completo (tokens light + dark, components)
 app/static/uploads/       → logos enviadas pelo admin + comprovantes/ (financeiro)
 app/templates/base.html   → app-shell (sidebar flutuante + topbar + drawer mobile + tema)
@@ -90,6 +96,10 @@ Flask-Migrate configurado com `render_as_batch=True` (obrigatório para SQLite).
   `cidade`, `uf`), `pcd` (bool) + `pcd_descricao`, `status` (`ativo|evadido|formado`),
   `autoriza_imagem` (bool LGPD) + `data_consentimento_imagem`. Properties calculadas: `idade`,
   `cpf_formatado`, `cep_formatado`.
+  **Matrículas em turma (2026-05-19, fase 1):** properties derivadas das `MatriculaTurma`:
+  `vinculos_ativos`, `vinculos_historico`, `turmas_ativas`, `turma_corrente`, `status_derivado`.
+  Campos legacy `Aluno.turma_id` e `Aluno.status` permanecem por compat (fallback usado pelo
+  status_derivado quando o aluno não tem nenhuma matrícula migrada).
 - `Responsavel`, `AlunoResponsavel` (N:N)
 - `Professor` — disciplinas via N:N `professor_disciplina` (**sem campo `disciplina_id` direto**)
 - `Nota` — unique por `(aluno_id, disciplina_id, mes, ano)`
@@ -102,6 +112,13 @@ Flask-Migrate configurado com `render_as_batch=True` (obrigatório para SQLite).
 - `MatriculaCurso` — N:N entre Aluno e Curso, unique por `(aluno_id, curso_id)`
 - `ProgressoVideoaula` — aluno + videoaula + assistido (bool), unique por `(aluno_id, videoaula_id)`
 - `ConfigSistema` — singleton (sempre ID=1): `nome` (str) + `logo_path` (str nullable)
+
+### Matrículas em turma (adicionado em 2026-05-19)
+- `MatriculaTurma` — vínculo aluno↔turma com histórico. `(aluno_id, turma_id, status, data_matricula, data_saida, observacao)`.
+  Status: `ativo|formado|evadido|transferido`. **Sem unique composto** — permite reentrada
+  (mesmo aluno em "Catequese 2026" e "Catequese 2027" são duas matrículas distintas; reabrir
+  uma matrícula encerrada também cria nova). Backrefs: `aluno.matriculas_turma` (dynamic) e
+  `turma.matriculas` (dynamic).
 
 ### Financeiro (adicionados em 2026-05-04)
 - `PlanoPagamento` — `(aluno, n_parcelas, valor_parcela, dia_vencimento, data_primeira, status, observacao)`.
@@ -140,17 +157,46 @@ Flask-Migrate configurado com `render_as_batch=True` (obrigatório para SQLite).
   - `cep` idem (8 dígitos). UF validada contra a lista das 27 siglas em `services.UFS_BR`.
   - Form usa ViaCEP no JS para auto-preencher logradouro/bairro/cidade/uf.
   - Cursos do aluno geridos via `MatriculaCurso` com checkbox múltiplo no próprio form.
-- **Status do aluno** (ativo/evadido/formado):
+- **Status do aluno** (ativo/evadido/formado/transferido) — agora **derivado** das matrículas:
+  - A property `Aluno.status_derivado` é a fonte da verdade: `ativo` se há matrícula ativa;
+    senão o status da matrícula mais recente (formado/evadido/transferido); `sem_vinculo`
+    se nunca teve matrícula. Fallback final: `Aluno.status` legacy quando o aluno não tem
+    matrícula nenhuma (alunos cadastrados antes de 2026-05-19).
   - **ativo** é o único que aparece em dashboards, médias, frequência geral, e nos selects de
     professor (lançar nota, frequência, observação). Filtros em `services.media_turma`,
-    `services.frequencia_geral`, `services.alunos_baixo_desempenho` (todos têm parâmetro
-    `incluir_inativos=False` por default).
-  - **evadido**: ao mudar de ativo→evadido em `/admin/alunos`, `services_financeiro.cancelar_plano_aluno`
-    é chamado automaticamente. Cancela mensalidades futuras + boletos abertos (no Cora).
-    Não toca em mensalidades pagas. Histórico permanece visível em `/admin/financeiro/planos/<aluno_id>`.
-  - **formado**: marcação manual. Não cancela nada (assume que tudo foi pago). Some dos dashboards
-    de "ativos" mas plano permanece como histórico.
-  - Filtro de status na listagem `/admin/alunos?status=ativo|evadido|formado`.
+    `services.frequencia_geral`, `services.alunos_baixo_desempenho`,
+    `services._alunos_filtro_status`, `services.query_alunos_ativos_na_turma` (todos têm
+    parâmetro `incluir_inativos=False` por default e aplicam o critério derivado via
+    `_aluno_ativo_clausula()` ou subqueries `EXISTS` sobre `MatriculaTurma`).
+  - **evadido (form legacy)**: ao mudar de ativo→evadido em `/admin/alunos`,
+    `services_financeiro.cancelar_plano_aluno` é chamado automaticamente. **Idempotente** —
+    safe de chamar mais de uma vez.
+  - **evadido (via vínculos)**: ao marcar a última matrícula ativa como evadido em
+    `/admin/alunos/<id>/vinculos`, a mesma função é chamada. As duas rotas coexistem sem
+    conflito porque `cancelar_plano_aluno` não faz nada se não há plano ativo.
+  - **formado** / **transferido**: marcação manual via página de vínculos. Não cancela nada
+    (assume que tudo foi pago). Some dos dashboards de "ativos" mas plano permanece como
+    histórico.
+  - Filtro de status na listagem `/admin/alunos?status=ativo|evadido|formado` usa subqueries
+    `EXISTS` sobre `MatriculaTurma` (com fallback legacy pra `Aluno.status` quando o aluno
+    não tem matrícula).
+- **Matrículas em turma (multi-vínculo):**
+  - Um aluno pode estar matriculado em **N turmas simultaneamente** (`MatriculaTurma` N:N).
+  - **Criação**: form `/admin/alunos` tem checkboxes multi-select de turmas. Cada turma
+    marcada vira uma `MatriculaTurma` ativa via `services.matricular_em_turma`.
+  - **Edição**: form principal só mostra chips read-only e link "Gerenciar vínculos" pra
+    `/admin/alunos/<id>/vinculos` (evita conflitar com encerramento de matrículas).
+  - **Página de vínculos** `/admin/alunos/<id>/vinculos`: tabela de vínculos ativos
+    (botões Formar/Evadir/Transferir, cada um abre modal com data_saida + observação) e
+    tabela de histórico (todas as matrículas encerradas, ordenadas pela mais recente).
+    Form de "Nova matrícula" no sidebar permite reabrir vínculo com turma onde já formou
+    ou evadiu (cria nova matrícula, mantém o histórico).
+  - **Validação**: `services.matricular_em_turma` falha com `ValueError` se já existe
+    matrícula ativa pro par (aluno, turma). Reentrada só é permitida depois que a anterior
+    foi encerrada.
+  - **Compat legacy**: `Aluno.turma_id` continua existindo e é sincronizado com a "primeira
+    turma ativa" pra views/scripts antigos que ainda leem `aluno.turma` direto. Será
+    removido em fase 2 (depois que todo o código tiver migrado).
 - **Responsável obrigatório só para menores:**
   - `Mensalidade.responsavel_id` é `nullable=True` (migration `08c5c41c858c`).
   - `criar_plano_pagamento` e `gerar_mensalidades_lote` exigem responsável apenas se
@@ -187,11 +233,23 @@ Flask-Migrate configurado com `render_as_batch=True` (obrigatório para SQLite).
 ## O que já foi implementado
 
 **Admin:** CRUD de alunos (ficha v2 completa: CPF com dígito verificador, sexo, cor/raça, telefone,
-endereço com ViaCEP, PCD, status `ativo|evadido|formado`, autorização de imagem LGPD, cursos múltiplos),
-turmas, professores (N:N disciplinas), disciplinas, responsáveis (N:N alunos), usuários (inclui tipo
-`aluno`). Filtro de status na listagem. Dashboard com médias e alertas (só ativos).
+endereço com ViaCEP, PCD, status derivado, autorização de imagem LGPD, cursos múltiplos,
+**múltiplas turmas via checkboxes na criação**), turmas, professores (N:N disciplinas),
+disciplinas, responsáveis (N:N alunos), usuários (inclui tipo `aluno`). Filtro de status
+na listagem usa subqueries sobre `MatriculaTurma`. Dashboard com médias e alertas (só ativos)
+e **widget "Aniversariantes de hoje"** (só aparece quando há).
 Gestão de cursos: criar curso → módulos → videoaulas, matricular/desmatricular alunos, duração em meses.
 Configurações do sistema: alterar nome da plataforma e upload de logo.
+**Aniversariantes** em `/admin/aniversariantes?escopo=dia|semana|mes` — listagem com pílulas
+de período (hoje / semana corrente / mês), badge "Hoje!" e "Amanhã", botão WhatsApp com
+mensagem pronta. Permissão `aluno.ver`.
+**Vínculos de turma** em `/admin/alunos/<id>/vinculos` — gerenciamento de matrículas com
+ações Formar/Evadir/Transferir + nova matrícula. Vínculos ativos + histórico em tabelas
+separadas. Reentrada permitida (criar nova matrícula em turma onde aluno já formou/evadiu).
+**Relatórios** em `/admin/relatorios` — KPIs (ativos, formados, evadidos, taxa de evasão),
+3 gráficos Chart.js (donut por status, barras empilhadas por turma, linha temporal de saídas
+por ano), tabela detalhada por turma. Filtro por turma. Exportação PDF (`reportlab`, sem
+gráficos por enquanto — só KPIs e tabelas).
 **Backup e restauração** em `/admin/backup` — gera zip com banco + uploads, baixa,
 exclui ou restaura a partir de upload. Restauração cria pre-backup automático e força logout.
 **Financeiro** em `/admin/financeiro` — KPIs (recebido, atrasado, a receber hoje, previsto),
@@ -200,8 +258,10 @@ mensalidades (gerar lote + emitir boleto), boletos (listar/cancelar/sincronizar)
 com upload de comprovante), categorias de despesa editáveis. Integração com Banco Cora via
 `services_cora` (mock por padrão, real implementado apenas quando o CoraPro for ativado).
 **Plano de pagamento parcelado** em `/admin/financeiro/planos/<aluno_id>` (link na linha do aluno):
-cria N mensalidades de uma vez, emite boleto da 1ª se vencer em ≤ 30 dias, vencimento empurrado pra
-próximo dia útil, cancelamento em massa, histórico. Auto-cancelamento ao mudar status para `evadido`.
+cria N mensalidades de uma vez (parcelas de **1x até 36x** em select contínuo, default 12x),
+emite boleto da 1ª se vencer em ≤ 30 dias, vencimento empurrado pra próximo dia útil,
+cancelamento em massa, histórico. Auto-cancelamento ao mudar status para `evadido` (form legacy)
+ou ao evadir a última matrícula ativa (página de vínculos).
 
 **Professor:** Grid mensal de notas (Jan–Dez) com edição inline, exportação CSV,
 frequência por data/turma/disciplina, atividades com filtros, observações por aluno,
@@ -217,13 +277,28 @@ lista de cursos matriculados com progresso, detalhe do curso em accordion, playe
 **Serviços (`services.py`):** `cpf_valido`, `cep_valido`, `uf_valida`, `so_digitos`, `UFS_BR`,
 `media_aluno`, `media_turma(turma, incluir_inativos=False)`, `frequencia_geral(incluir_inativos=False)`,
 `alunos_baixo_desempenho(limite=5.5, incluir_inativos=False)`, `queda_desempenho`, `stats_frequencia`,
-`faltas_consecutivas`, `alertas_frequencia`, `aviso_whatsapp`, `embed_url`.
+`faltas_consecutivas`, `alertas_frequencia`, `aviso_whatsapp`, `embed_url`,
+**`aniversariantes(escopo, incluir_inativos, hoje)`**, **`ESCOPOS_ANIVERSARIO`**,
+**`matricular_em_turma`**, **`formar_em_turma`**, **`evadir_em_turma`**, **`transferir_em_turma`**,
+**`matricula_ativa(aluno, turma)`**, **`_aluno_ativo_clausula`** (expressão SQL),
+**`_alunos_filtro_status(query, incluir_inativos)`**, **`query_alunos_ativos_na_turma(turma_id)`**,
+**`alunos_ativos_na_turma(turma)`**.
 
-**Serviços (`services_financeiro.py`):** `seed_categorias_padrao`, `gerar_mensalidades_lote`,
+**Serviços (`services_financeiro.py`):** `seed_categorias_padrao`, `gerar_mensalidades_lote`
+(usa `_alunos_filtro_status` — só inclui alunos ativos pelo critério derivado),
 `criar_mensalidade_avulsa`, `emitir_boleto`, `cancelar_boleto`, `registrar_pagamento_boleto`,
 `sincronizar_status_boletos`, `kpis_mes`, `fluxo_caixa`, `inadimplentes`,
-`registrar_movimentacao_manual`, **`criar_plano_pagamento`**, **`cancelar_plano_aluno`**,
-**`plano_ativo_do_aluno`**, **`proximo_dia_util`**.
+`registrar_movimentacao_manual`, `criar_plano_pagamento`, **`cancelar_plano_aluno` (idempotente)**,
+`plano_ativo_do_aluno`, `proximo_dia_util`.
+
+**Serviços (`services_relatorios.py`):** `kpis_status_alunos`, `distribuicao_por_turma`,
+`historico_anual(ano_inicio=None, ano_fim=None)` (usa `extract('year')` — portável SQLite + Postgres),
+`snapshot_completo(turma_id=None)`.
+
+**Serviços (`services_export.py`):** `fluxo_para_pdf`, `fluxo_para_xlsx`,
+`inadimplentes_para_pdf`, `inadimplentes_para_xlsx`, `boletos_para_pdf`, `boletos_para_xlsx`,
+**`relatorio_status_pdf(snapshot, filtro_turma, nome_instituicao)`** (KPIs + tabelas, sem
+gráficos).
 
 **Context processor:** `inject_config_sistema()` em `__init__.py` injeta `config_sistema`
 em **todos** os templates automaticamente (incluindo `login.html` e `register.html` que
@@ -247,7 +322,14 @@ toggle persistido em localStorage, drawer hamburger no mobile (<980px). Detalhes
 6. **Geração mensal automática de mensalidades** (mesma necessidade do scheduler do backup).
 7. **`CoraRealClient`** (em `services_cora.py`) — implementar quando o CoraPro for contratado.
    Hoje só existe `CoraMockClient`. Validação HMAC do webhook precisa entrar junto.
-8. ⚠️ (resolvido) Página `/admin/cursos` crashava com `TypeError` ao tentar `sum(attribute='videoaulas')` em listas — variável `total_videos` removida do template.
+8. **Fase 5 do redesenho de matrículas** — remover `Aluno.turma_id` e `Aluno.status` (legacy)
+   depois que todos os alunos antigos tiverem matrículas migradas. Migration de remoção
+   pendente. Hoje todos os filtros já têm fallback pra esses campos quando o aluno não tem
+   matrícula nenhuma, então a remoção será trivial — só precisa garantir que ninguém escreve
+   neles antes de remover.
+9. **Gráficos no PDF de relatórios** — hoje o PDF tem só KPIs + tabelas. Adicionar gráficos
+   exigiria matplotlib (decisão registrada na Fase 4 foi não adicionar a dependência ainda).
+10. ⚠️ (resolvido) Página `/admin/cursos` crashava com `TypeError` ao tentar `sum(attribute='videoaulas')` em listas — variável `total_videos` removida do template.
 
 ---
 
@@ -284,8 +366,8 @@ conjunto de chaves que ele pode executar.
 | Papel | Descrição |
 |---|---|
 | `admin` | Tudo. Wildcard `'*'`. |
-| `coordenador` | Cadastra alunos/profs/responsáveis (sem editar/excluir), matricula em cursos, emite cobrança, gera lote de mensalidades, vê financeiro. Não acessa configurações/backup/usuários. |
-| `gestor` | Só leitura — dashboards, relatórios, financeiro. Não cria, edita ou exclui nada. |
+| `coordenador` | Cadastra alunos/profs/responsáveis (sem editar/excluir), matricula em cursos, emite cobrança, gera lote de mensalidades, vê financeiro e **relatórios**. Não acessa configurações/backup/usuários. |
+| `gestor` | Só leitura — dashboards, **relatórios**, financeiro. Não cria, edita ou exclui nada. |
 | `professor`, `responsavel`, `aluno` | Mantêm os decorators próprios das blueprints `/professor`, `/responsavel`, `/aluno`. Não usam a matriz. |
 
 ### Usando permissões
@@ -461,6 +543,160 @@ exclusão pelo botão de lixeira (cancelar o boleto é o caminho).
   o Cora retorna a URL pública do PDF/boleto.
 - Lembrete por WhatsApp na tela de inadimplentes é só um link `wa.me/` — não envia
   automaticamente. Disparo automático fica pra fase 2 (provavelmente via `services.aviso_whatsapp`).
+
+---
+
+## Matrículas em turma (multi-vínculo + histórico)
+
+Adicionado em **2026-05-19** pra suportar alunos cursando múltiplas turmas
+simultaneamente e manter histórico de turmas anteriores (formado/evadido/transferido).
+
+Implementação:
+- Modelo [app/models.py](app/models.py) → `MatriculaTurma`.
+- Properties derivadas em `Aluno`.
+- Helpers em [app/services.py](app/services.py).
+- Rotas + UI em [app/routes_admin.py](app/routes_admin.py) e
+  [app/templates/admin_aluno_vinculos.html](app/templates/admin_aluno_vinculos.html).
+- Migration [migrations/versions/416ed464ea47_matriculas_turma_com_historico_de_.py](migrations/versions/416ed464ea47_matriculas_turma_com_historico_de_.py).
+
+### Modelo de dados
+
+```python
+class MatriculaTurma(db.Model):
+    id, aluno_id, turma_id
+    status: 'ativo' | 'formado' | 'evadido' | 'transferido'
+    data_matricula (default=today), data_saida (nullable), observacao
+```
+
+**Sem unique composto** por design. Mesmo aluno em "Catequese 2026" e
+"Catequese 2027" são duas matrículas distintas (turmas diferentes). Mesmo aluno
+**reentrando** numa turma onde já formou/evadiu também cria nova matrícula — o
+histórico de cada "passagem" fica preservado independentemente. A validação de
+"não duplicar" só impede 2 matrículas **ativas** simultâneas no mesmo par
+(aluno, turma) — checada por `services.matricular_em_turma`.
+
+### Status derivado
+
+`Aluno.status_derivado` é a fonte da verdade. Calcula:
+1. `ativo` se existe `MatriculaTurma(status='ativo')` para o aluno;
+2. senão, status da matrícula mais recente (`vinculos_historico[0].status`);
+3. senão, fallback pra `Aluno.status` legacy (alunos antigos sem matrícula);
+4. senão, `'sem_vinculo'`.
+
+Todos os filtros do sistema (`_alunos_filtro_status`, `query_alunos_ativos_na_turma`,
+filtro da listagem `/admin/alunos`, etc) usam `_aluno_ativo_clausula()`, que expressa
+o mesmo critério como SQL `EXISTS` + `OR` pra fallback legacy.
+
+### Backfill + compat
+
+A migration `416ed464ea47` é **idempotente** (criamos a tabela com check
+`IF NOT EXISTS` porque ela pode já existir via `db.create_all()` em dev).
+O backfill cria uma `MatriculaTurma` pra cada `Aluno` com `turma_id != None`,
+usando `Aluno.status` como status inicial. Backfill só roda se a tabela estiver
+vazia (segurança).
+
+Campos legacy mantidos:
+- `Aluno.turma_id` — sincronizado com a "primeira turma ativa" na criação.
+  Lido por código antigo (templates `aluno.turma.nome`, etc).
+- `Aluno.status` — ainda editável pelo form de edição. Quando muda para `evadido`,
+  o `editar_aluno` chama `cancelar_plano_aluno` (regra antiga, idempotente).
+
+### Rotas
+
+- `GET /admin/alunos/<id>/vinculos` — página dedicada com tabela de vínculos
+  ativos + histórico + form "Nova matrícula".
+- `POST /admin/alunos/<id>/vinculos` — ações: `matricular`, `formar`, `evadir`,
+  `transferir`. Cada ação encerrante aceita `data_saida` e `observacao`.
+- Form `/admin/alunos` (criação): checkboxes `name="turma_ids"` criam N matrículas
+  via `_matricular_turmas_iniciais`.
+- Filtro `/admin/alunos?status=ativo|evadido|formado|transferido` usa subqueries
+  `EXISTS` sobre `MatriculaTurma`.
+
+### Cascade financeiro
+
+Cancela plano automaticamente quando o aluno **fica sem nenhuma matrícula ativa**
+após uma evasão (regra nova, na rota de vínculos). A regra antiga continua
+funcionando (mudar `Aluno.status` legacy para `evadido` via form principal cancela
+o plano também). Como `cancelar_plano_aluno` é **idempotente**, as duas rotas
+coexistem sem duplicar cancelamento.
+
+### Limitações conhecidas
+
+- `Aluno.turma_id` legacy ainda existe — fase 5 do redesenho remove
+  (item 8 da seção *O que ainda NÃO foi feito*).
+- Formar/Evadir/Transferir não notifica responsáveis automaticamente.
+
+---
+
+## Relatórios
+
+Implementação em [app/services_relatorios.py](app/services_relatorios.py),
+[app/services_export.py](app/services_export.py) (função `relatorio_status_pdf`)
+e rotas `/admin/relatorios*` em [app/routes_admin.py](app/routes_admin.py).
+Template: [app/templates/admin_relatorios.html](app/templates/admin_relatorios.html).
+
+### O que mostra
+
+- **4 KPIs**: ativos, formados, evadidos (com taxa de evasão como sub), cadastros totais.
+- **Donut** (Chart.js): distribuição atual por status.
+- **Barras empilhadas** (Chart.js): matrículas por turma (ativo/formado/evadido/transferido).
+- **Linha temporal** (Chart.js): saídas por ano usando `data_saida` das matrículas
+  encerradas.
+- **Tabela**: detalhamento por turma com mesmos dados das barras.
+
+### Filtros
+
+`?turma_id=<id>` restringe o detalhamento por turma (KPIs e histórico continuam
+globais — fazem mais sentido sem filtro).
+
+### Exportação PDF
+
+`GET /admin/relatorios/pdf?turma_id=<id>` baixa PDF com KPIs + tabelas. Implementado
+em `services_export.relatorio_status_pdf` usando reportlab. **Sem gráficos** — adicionar
+exigiria matplotlib (decisão consciente pra evitar nova dependência).
+
+### Permissão
+
+`relatorio.ver` — admin (via `*`), coordenador e gestor.
+
+### Portabilidade SQL
+
+`historico_anual` usa `extract('year', ...)` em vez de `strftime('%Y', ...)` pra
+funcionar tanto em SQLite (dev) quanto Postgres (prod no Supabase).
+
+---
+
+## Aniversariantes
+
+Implementação em [app/services.py](app/services.py) (`aniversariantes`) e rotas
+`/admin/aniversariantes*` em [app/routes_admin.py](app/routes_admin.py).
+Templates: [app/templates/admin_aniversariantes.html](app/templates/admin_aniversariantes.html)
++ widget no dashboard admin.
+
+### O que mostra
+
+`GET /admin/aniversariantes?escopo=dia|semana|mes`:
+- **dia**: aniversariantes de hoje.
+- **semana**: semana corrente (segunda a domingo).
+- **mes**: mês corrente.
+
+Tabela com nome, turma, data de aniversário, dia da semana, idade que faz,
+telefone e botão WhatsApp com mensagem pronta. Badges "Hoje!" e "Amanhã".
+
+Dashboard admin tem **widget compacto** que só aparece quando há aniversariantes hoje
+— até 5 chips visíveis + link "ver todos".
+
+### Critérios
+
+- Só alunos com `status_derivado == 'ativo'` (passa pelo `_alunos_filtro_status`).
+- Só alunos com `data_nascimento` preenchida.
+- Usa `extract('month'/'day')` (portável SQLite + Postgres).
+- Cobre 29/02 em ano não-bissexto (assume 28/02).
+- Ordenado por (mes, dia, nome).
+
+### Permissão
+
+`aluno.ver` — admin, coordenador, gestor.
 
 ---
 

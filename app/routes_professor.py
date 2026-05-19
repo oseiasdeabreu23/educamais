@@ -3,7 +3,10 @@ from flask_login import login_required, current_user
 from app import db
 from app.models import (Aluno, Disciplina, Nota, Frequencia, Atividade, Observacao,
                         Professor, Turma)
-from app.services import media_aluno, queda_desempenho, stats_frequencia, alertas_frequencia
+from app.services import (media_aluno, queda_desempenho, stats_frequencia,
+                          alertas_frequencia, _alunos_filtro_status,
+                          query_alunos_ativos_na_turma,
+                          alunos_ativos_na_turma)
 from datetime import date as date_type
 import csv, io
 
@@ -46,7 +49,7 @@ def _turmas_do_professor(professor):
 @login_required
 @professor_required
 def dashboard():
-    alunos = Aluno.query.filter_by(status='ativo').all()
+    alunos = _alunos_filtro_status(Aluno.query).all()
     return render_template('dashboard_professor.html', alunos=alunos)
 
 
@@ -112,8 +115,7 @@ def lancar_nota():
 
     alunos_data = []
     if (turma_id in turmas_ids_validas and disciplina_id in disciplinas_ids_validas):
-        alunos = (Aluno.query
-                  .filter_by(turma_id=turma_id, status='ativo')
+        alunos = (query_alunos_ativos_na_turma(turma_id)
                   .order_by(Aluno.nome).all())
         for aluno in alunos:
             notas_mes = {
@@ -150,7 +152,9 @@ def exportar_notas():
 
     turma      = Turma.query.get_or_404(turma_id)
     disciplina = Disciplina.query.get_or_404(disciplina_id)
-    alunos     = Aluno.query.filter_by(turma_id=turma_id).order_by(Aluno.nome).all()
+    # CSV inclui inativos pra contemplar histórico (alunos que já formaram
+    # na turma também aparecem com suas notas)
+    alunos     = alunos_ativos_na_turma(turma, incluir_inativos=True)
 
     output = io.StringIO()
     writer = csv.writer(output)
@@ -255,8 +259,7 @@ def registrar_frequencia():
 
     alunos_data = []
     if (turma_id in turmas_ids_validas and disciplina_id in disciplinas_ids_validas):
-        alunos = (Aluno.query
-                  .filter_by(turma_id=turma_id, status='ativo')
+        alunos = (query_alunos_ativos_na_turma(turma_id)
                   .order_by(Aluno.nome).all())
         for aluno in alunos:
             freq_hoje = Frequencia.query.filter_by(
@@ -383,7 +386,7 @@ def observacoes():
         flash('Observação adicionada', 'success')
         return redirect(url_for('professor.observacoes'))
 
-    alunos = Aluno.query.filter_by(status='ativo').order_by(Aluno.nome).all()
+    alunos = _alunos_filtro_status(Aluno.query).order_by(Aluno.nome).all()
     observacoes = Observacao.query.order_by(Observacao.data.desc()).all()
     return render_template('professor_observacoes.html', alunos=alunos, observacoes=observacoes)
 

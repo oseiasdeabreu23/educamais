@@ -1,6 +1,7 @@
 import re
-from datetime import date
-from app.models import Aluno, Nota, Frequencia, Observacao
+from datetime import date, timedelta
+from sqlalchemy import extract, or_, and_
+from app.models import Aluno, Nota, Frequencia, Observacao, MatriculaTurma, Turma
 from app import db
 
 
@@ -40,15 +41,148 @@ def uf_valida(uf):
     return (uf or '').strip().upper() in UFS_BR
 
 
+# ── Matrículas em turma ────────────────────────────────────────────────────────
+
+STATUS_MATRICULA_ENCERRADO = ('formado', 'evadido', 'transferido')
+
+
+def matricula_ativa(aluno, turma):
+    """Retorna a MatriculaTurma ativa do par (aluno, turma) ou None."""
+    return MatriculaTurma.query.filter_by(
+        aluno_id=aluno.id, turma_id=turma.id, status='ativo'
+    ).first()
+
+
+def matricular_em_turma(aluno, turma, data_matricula=None, observacao=None):
+    """Cria uma MatriculaTurma ativa. Falha se já existe uma ativa para o par.
+
+    Não faz commit — caller decide a transação.
+    """
+    if matricula_ativa(aluno, turma):
+        raise ValueError(f'{aluno.nome} já tem matrícula ativa em {turma.nome}.')
+    m = MatriculaTurma(
+        aluno_id=aluno.id,
+        turma_id=turma.id,
+        status='ativo',
+        data_matricula=data_matricula or date.today(),
+        observacao=observacao or None,
+    )
+    db.session.add(m)
+    return m
+
+
+def _encerrar_matricula(matricula, novo_status, data_saida=None, observacao=None):
+    if novo_status not in STATUS_MATRICULA_ENCERRADO:
+        raise ValueError(f'Status inválido para encerramento: {novo_status}')
+    if matricula.status != 'ativo':
+        raise ValueError('Matrícula já está encerrada.')
+    matricula.status = novo_status
+    matricula.data_saida = data_saida or date.today()
+    if observacao:
+        matricula.observacao = (
+            f'{matricula.observacao}\n{observacao}' if matricula.observacao else observacao
+        )
+    return matricula
+
+
+def formar_em_turma(matricula, data_saida=None, observacao=None):
+    return _encerrar_matricula(matricula, 'formado', data_saida, observacao)
+
+
+def evadir_em_turma(matricula, data_saida=None, observacao=None):
+    return _encerrar_matricula(matricula, 'evadido', data_saida, observacao)
+
+
+def transferir_em_turma(matricula, data_saida=None, observacao=None):
+    return _encerrar_matricula(matricula, 'transferido', data_saida, observacao)
+
+
+# ── Filtros ────────────────────────────────────────────────────────────────────
+
+def _aluno_ativo_clausula():
+    """Cláusula SQL: aluno é ativo se tem ao menos 1 matrícula ativa
+    OU (não tem nenhuma matrícula AND Aluno.status legacy = 'ativo').
+
+    O fallback evita sumir alunos cadastrados antes da Fase 1 que ainda
+    não foram matriculados em turma nenhuma.
+    """
+    tem_ativa = MatriculaTurma.query.filter(
+        MatriculaTurma.aluno_id == Aluno.id,
+        MatriculaTurma.status == 'ativo',
+    ).exists()
+    sem_matricula = ~MatriculaTurma.query.filter(
+        MatriculaTurma.aluno_id == Aluno.id,
+    ).exists()
+    return or_(tem_ativa, and_(sem_matricula, Aluno.status == 'ativo'))
+
+
 def _alunos_filtro_status(query, incluir_inativos=False):
-    """Aplica filtro de status='ativo' a uma query de Aluno, salvo override."""
+    """Aplica filtro de "ativo" a uma query de Aluno, salvo override.
+
+    Usa o status derivado das MatriculaTurma (fase 3), com fallback pra
+    Aluno.status legacy quando o aluno não tem matrícula.
+    """
     if incluir_inativos:
         return query
-    return query.filter(Aluno.status == 'ativo')
+    return query.filter(_aluno_ativo_clausula())
+
+
+def query_alunos_ativos_na_turma(turma_id, incluir_inativos=False):
+    """Query de Aluno com matrícula ativa na turma indicada.
+
+    Aplica fallback: se o aluno não tem matrícula nenhuma (caso legacy),
+    cai na coluna ``Aluno.turma_id`` + ``Aluno.status='ativo'``.
+    """
+    tem_na_turma = MatriculaTurma.query.filter(
+        MatriculaTurma.aluno_id == Aluno.id,
+        MatriculaTurma.turma_id == turma_id,
+        (MatriculaTurma.status == 'ativo') if not incluir_inativos else (1 == 1),
+    ).exists()
+    sem_matricula = ~MatriculaTurma.query.filter(
+        MatriculaTurma.aluno_id == Aluno.id,
+    ).exists()
+    fallback_legacy = and_(
+        sem_matricula,
+        Aluno.turma_id == turma_id,
+        Aluno.status == 'ativo',
+    )
+    return Aluno.query.filter(or_(tem_na_turma, fallback_legacy))
+
+
+def alunos_ativos_na_turma(turma, incluir_inativos=False):
+    """Lista de Aluno (ordenada por nome) ativos na turma."""
+    return query_alunos_ativos_na_turma(
+        turma.id, incluir_inativos=incluir_inativos
+    ).order_by(Aluno.nome).all()
+
+
+def _aluno_esta_ativo(aluno):
+    """Versão Python do _aluno_ativo_clausula — pra filtragem em memória."""
+    if any(m.status == 'ativo' for m in aluno.matriculas_turma):
+        return True
+    sem_matricula = aluno.matriculas_turma.count() == 0 if hasattr(
+        aluno.matriculas_turma, 'count'
+    ) else len(list(aluno.matriculas_turma)) == 0
+    return sem_matricula and aluno.status == 'ativo'
 
 
 def media_turma(turma, incluir_inativos=False):
-    alunos = [a for a in turma.alunos if incluir_inativos or a.status == 'ativo']
+    """Média da turma com base nas notas dos alunos com matrícula ativa nela.
+
+    "Matrícula ativa na turma" = MatriculaTurma(aluno, turma, status='ativo').
+    Quando ``incluir_inativos=True``, considera também matrículas encerradas
+    (formado/evadido/transferido) — útil para relatórios históricos.
+    """
+    q = MatriculaTurma.query.filter(MatriculaTurma.turma_id == turma.id)
+    if not incluir_inativos:
+        q = q.filter(MatriculaTurma.status == 'ativo')
+    alunos = [m.aluno for m in q.all()]
+
+    # Fallback: turma sem nenhuma matrícula migrada ainda — usa relação legacy
+    if not alunos:
+        alunos = [a for a in turma.alunos
+                  if incluir_inativos or (a.status or 'ativo') == 'ativo']
+
     if not alunos:
         return 0
 
@@ -64,7 +198,9 @@ def media_turma(turma, incluir_inativos=False):
 def frequencia_geral(incluir_inativos=False):
     q = Frequencia.query
     if not incluir_inativos:
-        q = q.join(Aluno, Frequencia.aluno_id == Aluno.id).filter(Aluno.status == 'ativo')
+        q = q.join(Aluno, Frequencia.aluno_id == Aluno.id).filter(
+            _aluno_ativo_clausula()
+        )
     total = q.count()
     if total == 0:
         return 0
@@ -163,3 +299,86 @@ def aviso_whatsapp(aluno, disciplina):
     media = media_aluno(aluno)
     simbolo = '🟢' if media >= 7 else '⚠️' if media >= 5 else '🔴'
     return f"📊 EducaMais Informa:\nAluno: {aluno.nome}\n{disciplina.nome}: {media:.1f} {simbolo}\nAtenção: desempenho abaixo da média."
+
+
+# ── Aniversariantes ────────────────────────────────────────────────────────────
+
+ESCOPOS_ANIVERSARIO = ('dia', 'semana', 'mes')
+
+
+def _idade_que_faz(data_nasc, ref):
+    """Idade que a pessoa terá no aniversário deste ano (a partir de `ref`)."""
+    if not data_nasc:
+        return None
+    anos = ref.year - data_nasc.year
+    if (ref.month, ref.day) > (data_nasc.month, data_nasc.day):
+        anos += 1
+    return anos
+
+
+def aniversariantes(escopo='dia', incluir_inativos=False, hoje=None):
+    """
+    Retorna alunos cujo aniversário cai no escopo informado.
+
+    escopo:
+      - 'dia'    → hoje
+      - 'semana' → semana corrente (segunda a domingo) contendo `hoje`
+      - 'mes'    → mês corrente
+
+    Retorna lista de dicts: {aluno, dia, mes, data_aniversario_ano, idade_que_faz, dias_para}
+    ordenada por (mes, dia) ascendente.
+    """
+    if hoje is None:
+        hoje = date.today()
+    if escopo not in ESCOPOS_ANIVERSARIO:
+        escopo = 'dia'
+
+    q = _alunos_filtro_status(Aluno.query, incluir_inativos)
+    q = q.filter(Aluno.data_nascimento.isnot(None))
+
+    if escopo == 'dia':
+        q = q.filter(
+            extract('month', Aluno.data_nascimento) == hoje.month,
+            extract('day', Aluno.data_nascimento) == hoje.day,
+        )
+        intervalo = [hoje]
+    elif escopo == 'semana':
+        # semana corrente: segunda (weekday=0) a domingo (weekday=6)
+        inicio = hoje - timedelta(days=hoje.weekday())
+        fim = inicio + timedelta(days=6)
+        intervalo = [inicio + timedelta(days=i) for i in range((fim - inicio).days + 1)]
+        # constrói OR de pares (mês, dia) — cobre o caso da semana cruzar virada de mês
+        pares = {(d.month, d.day) for d in intervalo}
+        q = q.filter(
+            or_(*[
+                and_(
+                    extract('month', Aluno.data_nascimento) == m,
+                    extract('day', Aluno.data_nascimento) == d,
+                )
+                for (m, d) in pares
+            ])
+        )
+    else:  # 'mes'
+        q = q.filter(extract('month', Aluno.data_nascimento) == hoje.month)
+
+    alunos = q.all()
+
+    resultado = []
+    for aluno in alunos:
+        nasc = aluno.data_nascimento
+        try:
+            aniv = nasc.replace(year=hoje.year)
+        except ValueError:
+            # 29/02 em ano não-bissexto → assume 28/02
+            aniv = nasc.replace(year=hoje.year, day=28)
+        resultado.append({
+            'aluno': aluno,
+            'dia': nasc.day,
+            'mes': nasc.month,
+            'data_aniversario_ano': aniv,
+            'idade_que_faz': _idade_que_faz(nasc, hoje),
+            'dias_para': (aniv - hoje).days,
+        })
+
+    resultado.sort(key=lambda r: (r['mes'], r['dia'], r['aluno'].nome.lower()))
+    return resultado

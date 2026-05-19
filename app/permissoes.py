@@ -36,8 +36,8 @@ PERMISSOES = {
         'responsavel.ver', 'responsavel.criar',
         'turma.ver', 'disciplina.ver',
         'curso.ver', 'matricula.gerenciar',
-        # Dashboard
-        'dashboard.ver',
+        # Dashboard + relatórios
+        'dashboard.ver', 'relatorio.ver',
         # Financeiro — pode gerar mensalidades em lote e emitir boleto
         'financeiro.ver',
         'mensalidade.gerar',

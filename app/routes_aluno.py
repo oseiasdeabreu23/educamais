@@ -66,11 +66,15 @@ def dashboard():
         })
     disciplinas_data.sort(key=lambda x: x['disciplina'].nome)
 
-    # Atividades recentes da turma
+    # Atividades recentes das turmas ativas do aluno (multi-vínculo).
+    # Fallback: turma legacy via aluno.turma_id se não houver matrículas.
+    turma_ids_aluno = [t.id for t in aluno.turmas_ativas]
+    if not turma_ids_aluno and aluno.turma_id:
+        turma_ids_aluno = [aluno.turma_id]
     atividades = []
-    if aluno.turma_id:
+    if turma_ids_aluno:
         atividades = (Atividade.query
-                      .filter_by(turma_id=aluno.turma_id)
+                      .filter(Atividade.turma_id.in_(turma_ids_aluno))
                       .order_by(Atividade.data.desc())
                       .limit(5).all())
 

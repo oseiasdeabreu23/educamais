@@ -1,0 +1,275 @@
+{% extends 'base.html' %}
+{% block page_title %}Relatórios{% endblock %}
+{% block page_subtitle %}<div class="topbar-sub">Visão consolidada dos alunos · matrículas · histórico</div>{% endblock %}
+{% block content %}
+
+{% set k = snapshot.kpis %}
+
+{# ── Filtros + exportar ── #}
+<div class="card mb-3">
+  <form method="GET" class="d-flex align-items-end flex-wrap" style="gap:12px">
+    <div>
+      <label class="label">Recorte por turma</label>
+      <select class="select" name="turma_id" style="min-width:220px">
+        <option value="">Todas as turmas</option>
+        {% for t in turmas %}
+        <option value="{{ t.id }}" {% if turma_id == t.id %}selected{% endif %}>{{ t.nome }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button type="submit" class="btn btn-primary">
+      <i class="bi bi-funnel"></i> Aplicar
+    </button>
+    {% if turma_id %}
+    <a href="{{ url_for('admin.relatorios') }}" class="btn btn-ghost">
+      <i class="bi bi-x-lg"></i> Limpar
+    </a>
+    {% endif %}
+    <a class="btn btn-ghost ms-auto"
+       href="{{ url_for('admin.relatorios_pdf', turma_id=turma_id) }}"
+       title="Exportar PDF">
+      <i class="bi bi-file-earmark-pdf"></i> Exportar PDF
+    </a>
+  </form>
+</div>
+
+{# ── KPIs ── #}
+<div class="row g-3">
+  <div class="col-sm-6 col-lg-3">
+    <div class="kpi kpi-emerald">
+      <div class="kpi-head">
+        <div class="kpi-icon"><i class="bi bi-check-circle-fill"></i></div>
+      </div>
+      <div class="kpi-label">Ativos</div>
+      <div class="kpi-value">{{ k.ativos }}</div>
+      <div class="kpi-sub">Cursando agora</div>
+    </div>
+  </div>
+  <div class="col-sm-6 col-lg-3">
+    <div class="kpi kpi-blue">
+      <div class="kpi-head">
+        <div class="kpi-icon"><i class="bi bi-mortarboard-fill"></i></div>
+      </div>
+      <div class="kpi-label">Formados</div>
+      <div class="kpi-value">{{ k.formados }}</div>
+      <div class="kpi-sub">Histórico de conclusões</div>
+    </div>
+  </div>
+  <div class="col-sm-6 col-lg-3">
+    <div class="kpi kpi-amber">
+      <div class="kpi-head">
+        <div class="kpi-icon"><i class="bi bi-x-circle-fill"></i></div>
+      </div>
+      <div class="kpi-label">Evadidos</div>
+      <div class="kpi-value">{{ k.evadidos }}</div>
+      <div class="kpi-sub">{{ k.taxa_evasao }}% de taxa de evasão</div>
+    </div>
+  </div>
+  <div class="col-sm-6 col-lg-3">
+    <div class="kpi kpi-violet">
+      <div class="kpi-head">
+        <div class="kpi-icon"><i class="bi bi-people-fill"></i></div>
+      </div>
+      <div class="kpi-label">Cadastros totais</div>
+      <div class="kpi-value">{{ k.total }}</div>
+      <div class="kpi-sub">
+        {% if k.transferidos %}{{ k.transferidos }} transferido{{ 's' if k.transferidos != 1 }}{% endif %}
+        {% if k.sem_vinculo %} · {{ k.sem_vinculo }} sem vínculo{% endif %}
+        {% if not k.transferidos and not k.sem_vinculo %}Inclui histórico completo{% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3 mt-1">
+
+  {# ── Gráfico donut: distribuição atual ── #}
+  <div class="col-lg-5">
+    <div class="card">
+      <div class="card-h">
+        <div>
+          <div class="card-title">Distribuição por status</div>
+          <div class="card-sub">Snapshot atual</div>
+        </div>
+      </div>
+      <div style="position:relative; height:280px">
+        <canvas id="chartStatus"></canvas>
+      </div>
+    </div>
+  </div>
+
+  {# ── Gráfico barras empilhadas: por turma ── #}
+  <div class="col-lg-7">
+    <div class="card">
+      <div class="card-h">
+        <div>
+          <div class="card-title">Matrículas por turma</div>
+          <div class="card-sub">Inclui matrículas ativas e histórico</div>
+        </div>
+        <span class="badge">{{ snapshot.por_turma|length }} turma{{ 's' if snapshot.por_turma|length != 1 }}</span>
+      </div>
+      {% if snapshot.por_turma %}
+      <div style="position:relative; height:280px">
+        <canvas id="chartPorTurma"></canvas>
+      </div>
+      {% else %}
+      <div class="empty-state">
+        <i class="bi bi-bar-chart"></i>
+        <p>Nenhuma turma com matrículas no recorte selecionado.</p>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  {# ── Gráfico linha: histórico anual ── #}
+  <div class="col-12">
+    <div class="card">
+      <div class="card-h">
+        <div>
+          <div class="card-title">Saídas por ano</div>
+          <div class="card-sub">Formados, evadidos e transferidos (data de saída)</div>
+        </div>
+      </div>
+      {% if snapshot.historico %}
+      <div style="position:relative; height:280px">
+        <canvas id="chartHistorico"></canvas>
+      </div>
+      {% else %}
+      <div class="empty-state">
+        <i class="bi bi-clock-history"></i>
+        <p>Ainda não há saídas registradas para construir o histórico.</p>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  {# ── Tabela detalhamento por turma ── #}
+  {% if snapshot.por_turma %}
+  <div class="col-12">
+    <div class="card no-pad">
+      <div class="card-h" style="padding:20px 20px 16px; margin:0">
+        <div>
+          <div class="card-title">Detalhamento por turma</div>
+          <div class="card-sub">Mesmos dados do gráfico, em forma de tabela</div>
+        </div>
+      </div>
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Turma</th>
+            <th class="text-end">Ativos</th>
+            <th class="text-end">Formados</th>
+            <th class="text-end">Evadidos</th>
+            <th class="text-end">Transferidos</th>
+            <th class="text-end">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in snapshot.por_turma %}
+          <tr>
+            <td><strong>{{ r.turma.nome }}</strong></td>
+            <td class="text-end"><span class="badge badge-ok">{{ r.ativos }}</span></td>
+            <td class="text-end"><span class="badge badge-primary">{{ r.formados }}</span></td>
+            <td class="text-end"><span class="badge badge-warn">{{ r.evadidos }}</span></td>
+            <td class="text-end"><span class="badge badge-info">{{ r.transferidos }}</span></td>
+            <td class="text-end fw-700">{{ r.total }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+{# ── Scripts dos gráficos ── #}
+<script>
+(function () {
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  const gridColor = isDark ? 'rgba(255,255,255,.07)' : 'rgba(0,0,0,.07)';
+  const textColor = isDark ? '#cdd5e6' : '#374151';
+
+  // Paleta consistente com o design system
+  const C = {
+    ativo:       '#10b981',
+    formado:     '#3b82f6',
+    evadido:     '#f59e0b',
+    transferido: '#94a3b8',
+  };
+
+  // ── Donut status ─────────────────────────────────────────────────────
+  new Chart(document.getElementById('chartStatus'), {
+    type: 'doughnut',
+    data: {
+      labels: ['Ativos', 'Formados', 'Evadidos', 'Transferidos'],
+      datasets: [{
+        data: [{{ k.ativos }}, {{ k.formados }}, {{ k.evadidos }}, {{ k.transferidos }}],
+        backgroundColor: [C.ativo, C.formado, C.evadido, C.transferido],
+        borderWidth: 0,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      cutout: '65%',
+      plugins: {
+        legend: { position: 'bottom', labels: { color: textColor } },
+      },
+    },
+  });
+
+  {% if snapshot.por_turma %}
+  // ── Barras por turma ─────────────────────────────────────────────────
+  new Chart(document.getElementById('chartPorTurma'), {
+    type: 'bar',
+    data: {
+      labels: [{% for r in snapshot.por_turma %}{{ r.turma.nome|tojson }}{% if not loop.last %},{% endif %}{% endfor %}],
+      datasets: [
+        { label: 'Ativos',       data: [{% for r in snapshot.por_turma %}{{ r.ativos }}{% if not loop.last %},{% endif %}{% endfor %}], backgroundColor: C.ativo },
+        { label: 'Formados',     data: [{% for r in snapshot.por_turma %}{{ r.formados }}{% if not loop.last %},{% endif %}{% endfor %}], backgroundColor: C.formado },
+        { label: 'Evadidos',     data: [{% for r in snapshot.por_turma %}{{ r.evadidos }}{% if not loop.last %},{% endif %}{% endfor %}], backgroundColor: C.evadido },
+        { label: 'Transferidos', data: [{% for r in snapshot.por_turma %}{{ r.transferidos }}{% if not loop.last %},{% endif %}{% endfor %}], backgroundColor: C.transferido },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        x: { stacked: true, grid: { color: gridColor }, ticks: { color: textColor } },
+        y: { stacked: true, grid: { color: gridColor }, ticks: { color: textColor, precision: 0 } },
+      },
+      plugins: { legend: { position: 'bottom', labels: { color: textColor } } },
+    },
+  });
+  {% endif %}
+
+  {% if snapshot.historico %}
+  // ── Linha histórico ──────────────────────────────────────────────────
+  new Chart(document.getElementById('chartHistorico'), {
+    type: 'line',
+    data: {
+      labels: [{% for h in snapshot.historico %}{{ h.ano }}{% if not loop.last %},{% endif %}{% endfor %}],
+      datasets: [
+        { label: 'Formados',     borderColor: C.formado,     backgroundColor: 'transparent', tension: .35,
+          data: [{% for h in snapshot.historico %}{{ h.formados }}{% if not loop.last %},{% endif %}{% endfor %}] },
+        { label: 'Evadidos',     borderColor: C.evadido,     backgroundColor: 'transparent', tension: .35,
+          data: [{% for h in snapshot.historico %}{{ h.evadidos }}{% if not loop.last %},{% endif %}{% endfor %}] },
+        { label: 'Transferidos', borderColor: C.transferido, backgroundColor: 'transparent', tension: .35,
+          data: [{% for h in snapshot.historico %}{{ h.transferidos }}{% if not loop.last %},{% endif %}{% endfor %}] },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        x: { grid: { color: gridColor }, ticks: { color: textColor } },
+        y: { grid: { color: gridColor }, ticks: { color: textColor, precision: 0 } },
+      },
+      plugins: { legend: { position: 'bottom', labels: { color: textColor } } },
+    },
+  });
+  {% endif %}
+})();
+</script>
+
+{% endblock %}

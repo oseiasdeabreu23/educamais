@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 {% block page_title %}Olá, {{ aluno.nome.split()[0] }}!{% endblock %}
-{% block page_subtitle %}<div class="topbar-sub">{{ aluno.turma.nome if aluno.turma else 'Sem turma' }} · Ano {{ ano_atual }}</div>{% endblock %}
+{% block page_subtitle %}<div class="topbar-sub">{% if aluno.turmas_ativas %}{{ aluno.turmas_ativas | map(attribute='nome') | join(', ') }}{% elif aluno.turma %}{{ aluno.turma.nome }}{% else %}Sem turma{% endif %} · Ano {{ ano_atual }}</div>{% endblock %}
 {% block content %}
 
 {# ── Alertas ── #}

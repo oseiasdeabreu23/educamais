@@ -135,6 +135,63 @@ class Aluno(db.Model):
             return c
         return f'{c[:5]}-{c[5:]}'
 
+    # ── Vínculos com turmas (via MatriculaTurma) ─────────────────────────────
+    # Estes accessors são "deriváveis" — coexistem com a coluna legacy
+    # Aluno.turma_id (mantida na fase 1 por compat). Use sempre estes daqui
+    # pra frente.
+
+    @property
+    def vinculos_ativos(self):
+        """Lista de MatriculaTurma com status='ativo'."""
+        return [m for m in self.matriculas_turma if m.status == 'ativo']
+
+    @property
+    def vinculos_historico(self):
+        """Matrículas concluídas/encerradas (formado, evadido, transferido),
+        ordenadas pelo mais recente primeiro."""
+        encerradas = [m for m in self.matriculas_turma if m.status != 'ativo']
+        return sorted(
+            encerradas,
+            key=lambda m: (m.data_saida or m.data_matricula),
+            reverse=True,
+        )
+
+    @property
+    def turmas_ativas(self):
+        """Lista de Turma associadas a vínculos ativos."""
+        return [m.turma for m in self.vinculos_ativos]
+
+    @property
+    def turma_corrente(self):
+        """Turma "principal": a primeira ativa, ou None.
+
+        Fallback pra Aluno.turma (relação legacy) enquanto a fase 1 mantém
+        Aluno.turma_id por compat — assim templates antigos não quebram.
+        """
+        ativas = self.turmas_ativas
+        if ativas:
+            return ativas[0]
+        return self.turma  # relação legada via Aluno.turma_id
+
+    @property
+    def status_derivado(self):
+        """Status calculado a partir das matrículas:
+
+        - 'ativo' se há ao menos uma matrícula ativa;
+        - senão, status da matrícula mais recente (formado/evadido/transferido);
+        - 'sem_vinculo' se nunca teve matrícula.
+
+        Se não há matrículas mas a coluna legacy Aluno.status existe, devolve
+        ela (compat com alunos antigos que ainda não foram migrados).
+        """
+        ativos = self.vinculos_ativos
+        if ativos:
+            return 'ativo'
+        encerradas = self.vinculos_historico
+        if encerradas:
+            return encerradas[0].status
+        return self.status or 'sem_vinculo'
+
 
 class Responsavel(db.Model):
     __tablename__ = 'responsaveis'
@@ -270,6 +327,34 @@ class MatriculaCurso(db.Model):
     __table_args__ = (
         db.UniqueConstraint('aluno_id', 'curso_id', name='uq_matricula_aluno_curso'),
     )
+
+
+class MatriculaTurma(db.Model):
+    """Vínculo aluno-turma com histórico. Aluno pode ter múltiplas matrículas
+    (em turmas diferentes ou na mesma turma em anos distintos).
+
+    Status:
+      - ativo:       cursando
+      - formado:     concluiu a turma
+      - evadido:     saiu antes de concluir
+      - transferido: saiu para outra turma/instituição
+    """
+    __tablename__ = 'matriculas_turma'
+    id = db.Column(db.Integer, primary_key=True)
+    aluno_id = db.Column(db.Integer, db.ForeignKey('alunos.id'), nullable=False, index=True)
+    turma_id = db.Column(db.Integer, db.ForeignKey('turmas.id'), nullable=False, index=True)
+    status = db.Column(db.String(20), nullable=False, default='ativo')
+    data_matricula = db.Column(db.Date, nullable=False, default=date.today)
+    data_saida = db.Column(db.Date, nullable=True)
+    observacao = db.Column(db.Text, nullable=True)
+
+    aluno = db.relationship('Aluno', backref=db.backref('matriculas_turma', lazy='dynamic',
+                                                       cascade='all, delete-orphan'))
+    turma = db.relationship('Turma', backref=db.backref('matriculas', lazy='dynamic'))
+
+    @property
+    def ativa(self):
+        return self.status == 'ativo'
 
 
 class ProgressoVideoaula(db.Model):

@@ -47,6 +47,45 @@
   </div>
 </div>
 
+{% if aniv_hoje %}
+<div class="card mb-3" style="border-color: rgba(245,158,11,.4)">
+  <div class="card-h" style="margin-bottom:8px">
+    <div class="d-flex align-items-center gap-2">
+      <span class="qa-icon" style="background:rgba(245,158,11,.15); color:#f59e0b">
+        <i class="bi bi-balloon-fill"></i>
+      </span>
+      <div>
+        <div class="card-title">Aniversariantes de hoje</div>
+        <div class="card-sub">{{ aniv_hoje|length }} aluno{{ 's' if aniv_hoje|length != 1 else '' }} fazendo aniversário</div>
+      </div>
+    </div>
+    <a href="{{ url_for('admin.aniversariantes_view') }}" class="btn btn-ghost btn-sm">
+      Ver todos <i class="bi bi-arrow-right"></i>
+    </a>
+  </div>
+  <div class="d-flex flex-wrap" style="gap:10px">
+    {% for item in aniv_hoje[:5] %}
+    <div class="d-flex align-items-center gap-2"
+         style="background:var(--surface-2); padding:8px 12px; border-radius:var(--r-md)">
+      <div class="avatar-sm">{{ item.aluno.nome[0].upper() }}</div>
+      <div>
+        <div class="fw-600" style="font-size:13.5px">{{ item.aluno.nome }}</div>
+        <div class="dim" style="font-size:11.5px">
+          {{ item.idade_que_faz }} anos
+          {% if item.aluno.turma %} · {{ item.aluno.turma.nome }}{% endif %}
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+    {% if aniv_hoje|length > 5 %}
+    <div class="d-flex align-items-center dim" style="padding:8px 4px">
+      + {{ aniv_hoje|length - 5 }} {{ 'outro' if (aniv_hoje|length - 5) == 1 else 'outros' }}
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
 <div class="row g-3">
   {# ── Ações rápidas ── #}
   <div class="col-lg-4">

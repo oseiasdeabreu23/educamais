@@ -73,7 +73,11 @@ def gerar_mensalidades_lote(mes, ano, valor_default=None, vencimento=None):
     sem_valor = []
     sem_resp = []
 
-    alunos = Aluno.query.filter(Aluno.turma_id.isnot(None)).all()
+    # Aluno entra no lote se está "ativo" (tem matrícula ativa, ou — fallback
+    # legacy — Aluno.status='ativo' e tem turma_id setado). Alunos formados
+    # ou evadidos são pulados automaticamente.
+    from app.services import _alunos_filtro_status
+    alunos = _alunos_filtro_status(Aluno.query).all()
 
     for aluno in alunos:
         ja_existe = Mensalidade.query.filter_by(

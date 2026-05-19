@@ -11,17 +11,21 @@ from app.models import (User, Aluno, Responsavel, Professor, Turma, Disciplina,
                         Curso, Modulo, Videoaula, MatriculaCurso, ConfigSistema,
                         Mensalidade, Boleto, CategoriaDespesa, Movimentacao,
                         PlanoPagamento, IntegracaoMercadoPago, EncontroTurma,
-                        Aviso, AvisoLeitura, Atividade,
+                        Aviso, AvisoLeitura, Atividade, MatriculaTurma,
                         Nota, Frequencia, Observacao, AlunoResponsavel,
                         ProgressoVideoaula)
 from app.services import (media_turma, frequencia_geral, alunos_baixo_desempenho,
-                          cpf_valido, cep_valido, uf_valida, so_digitos, UFS_BR)
+                          cpf_valido, cep_valido, uf_valida, so_digitos, UFS_BR,
+                          aniversariantes, ESCOPOS_ANIVERSARIO,
+                          matricular_em_turma, formar_em_turma,
+                          evadir_em_turma, transferir_em_turma)
 from app import (services_backup, services_financeiro, services_mercadopago,
-                 services_avisos, storage)
+                 services_avisos, services_relatorios, storage)
 from app.services_cora import get_cora_client, CoraError, CoraMockClient
 from app.services_mercadopago import MercadoPagoError
 from app.permissoes import requires, pode, ROLES_CRIAVEIS_ADMIN, ROLES_LABEL
 from datetime import date, datetime
+from sqlalchemy import or_, and_
 from sqlalchemy.exc import IntegrityError
 
 LOGO_EXTENSOES = {'png', 'jpg', 'jpeg', 'webp', 'svg'}
@@ -63,7 +67,63 @@ def dashboard():
         'frequencia': frequencia_geral(),
         'baixo_desempenho': alunos_baixo_desempenho(),
     }
-    return render_template('dashboard_admin.html', turmas=turmas, relatorios=relatorios)
+    aniv_hoje = aniversariantes(escopo='dia')
+    return render_template('dashboard_admin.html', turmas=turmas,
+                           relatorios=relatorios, aniv_hoje=aniv_hoje)
+
+
+# ── Aniversariantes ────────────────────────────────────────────────────────────
+
+@admin_bp.route('/aniversariantes')
+@login_required
+@requires('aluno.ver')
+def aniversariantes_view():
+    escopo = (request.args.get('escopo') or 'dia').lower()
+    if escopo not in ESCOPOS_ANIVERSARIO:
+        escopo = 'dia'
+    lista = aniversariantes(escopo=escopo)
+    return render_template('admin_aniversariantes.html',
+                           lista=lista, escopo=escopo, hoje=date.today())
+
+
+# ── Relatórios ────────────────────────────────────────────────────────────────
+
+@admin_bp.route('/relatorios')
+@login_required
+@requires('relatorio.ver')
+def relatorios():
+    turma_id_raw = request.args.get('turma_id', type=int)
+    snapshot = services_relatorios.snapshot_completo(turma_id=turma_id_raw)
+    turmas = Turma.query.order_by(Turma.nome).all()
+    return render_template(
+        'admin_relatorios.html',
+        snapshot=snapshot,
+        turmas=turmas,
+        turma_id=turma_id_raw,
+    )
+
+
+@admin_bp.route('/relatorios/pdf')
+@login_required
+@requires('relatorio.ver')
+def relatorios_pdf():
+    turma_id_raw = request.args.get('turma_id', type=int)
+    snapshot = services_relatorios.snapshot_completo(turma_id=turma_id_raw)
+    turma_nome = None
+    if turma_id_raw:
+        t = Turma.query.get(turma_id_raw)
+        turma_nome = t.nome if t else None
+
+    from app.services_export import relatorio_status_pdf
+    config = ConfigSistema.query.first()
+    pdf_bytes = relatorio_status_pdf(
+        snapshot,
+        filtro_turma=turma_nome,
+        nome_instituicao=(config.nome if config else 'EducaMais'),
+    )
+    nome = f'relatorio_alunos_{date.today().isoformat()}.pdf'
+    return send_file(pdf_bytes, mimetype='application/pdf',
+                     as_attachment=True, download_name=nome)
 
 
 # ── Alunos ─────────────────────────────────────────────────────────────────────
@@ -163,6 +223,34 @@ def _sincronizar_matriculas(aluno, curso_ids):
                                           data_matricula=date.today()))
 
 
+def _matricular_turmas_iniciais(aluno, turma_ids):
+    """Cria MatriculaTurma ativas para cada turma selecionada na criação.
+    Sincroniza aluno.turma_id (legacy) com a primeira da lista."""
+    ids = []
+    for raw in turma_ids:
+        if not raw:
+            continue
+        try:
+            ids.append(int(raw))
+        except (TypeError, ValueError):
+            continue
+    if not ids:
+        return
+    primeira = None
+    for tid in ids:
+        turma = Turma.query.get(tid)
+        if not turma:
+            continue
+        try:
+            matricular_em_turma(aluno, turma)
+        except ValueError:
+            continue
+        if primeira is None:
+            primeira = turma
+    if primeira is not None and not aluno.turma_id:
+        aluno.turma_id = primeira.id
+
+
 @admin_bp.route('/alunos', methods=['GET', 'POST'])
 @login_required
 @requires('aluno.ver')
@@ -179,6 +267,7 @@ def alunos():
             db.session.add(aluno)
             db.session.flush()
             _sincronizar_matriculas(aluno, request.form.getlist('curso_ids'))
+            _matricular_turmas_iniciais(aluno, request.form.getlist('turma_ids'))
             db.session.commit()
             flash('Aluno cadastrado.', 'success')
         except IntegrityError:
@@ -190,8 +279,31 @@ def alunos():
     turmas = Turma.query.order_by(Turma.nome).all()
     cursos = Curso.query.order_by(Curso.titulo).all()
     q = Aluno.query
+
     if filtro_status in STATUS_ALUNO_CHOICES:
-        q = q.filter_by(status=filtro_status)
+        # Filtro via status derivado das MatriculaTurma.
+        # Para alunos antigos sem nenhuma matrícula (raros após o backfill),
+        # cai no fallback Aluno.status pra não sumirem das listagens.
+        tem_ativa = MatriculaTurma.query.filter(
+            MatriculaTurma.aluno_id == Aluno.id,
+            MatriculaTurma.status == 'ativo',
+        ).exists()
+        sem_matricula = ~MatriculaTurma.query.filter(
+            MatriculaTurma.aluno_id == Aluno.id,
+        ).exists()
+
+        if filtro_status == 'ativo':
+            q = q.filter(or_(tem_ativa, and_(sem_matricula, Aluno.status == 'ativo')))
+        else:
+            tem_status = MatriculaTurma.query.filter(
+                MatriculaTurma.aluno_id == Aluno.id,
+                MatriculaTurma.status == filtro_status,
+            ).exists()
+            q = q.filter(or_(
+                and_(tem_status, ~tem_ativa),
+                and_(sem_matricula, Aluno.status == filtro_status),
+            ))
+
     alunos = q.order_by(Aluno.nome).all()
     return render_template('admin_alunos.html',
                            alunos=alunos, turmas=turmas, cursos=cursos,
@@ -302,6 +414,104 @@ def excluir_aluno(id):
             'danger'
         )
     return redirect(url_for('admin.alunos'))
+
+
+# ── Vínculos do aluno (matrículas em turma) ───────────────────────────────────
+
+@admin_bp.route('/alunos/<int:id>/vinculos', methods=['GET', 'POST'])
+@login_required
+@requires('aluno.ver')
+def aluno_vinculos(id):
+    aluno = Aluno.query.get_or_404(id)
+
+    if request.method == 'POST':
+        if not pode(current_user, 'aluno.editar'):
+            abort(403)
+        action = (request.form.get('action') or '').strip()
+        observacao = (request.form.get('observacao') or '').strip() or None
+        data_saida_raw = (request.form.get('data_saida') or '').strip()
+        data_saida = None
+        if data_saida_raw:
+            try:
+                data_saida = date.fromisoformat(data_saida_raw)
+            except ValueError:
+                flash('Data de saída inválida.', 'danger')
+                return redirect(url_for('admin.aluno_vinculos', id=aluno.id))
+
+        try:
+            if action == 'matricular':
+                turma_id = request.form.get('turma_id')
+                turma = Turma.query.get(int(turma_id)) if turma_id else None
+                if not turma:
+                    flash('Turma inválida.', 'danger')
+                    return redirect(url_for('admin.aluno_vinculos', id=aluno.id))
+                matricular_em_turma(aluno, turma, observacao=observacao)
+                if not aluno.turma_id:
+                    aluno.turma_id = turma.id
+                db.session.commit()
+                flash(f'{aluno.nome} matriculado em {turma.nome}.', 'success')
+
+            elif action in ('formar', 'evadir', 'transferir'):
+                m_id = request.form.get('matricula_id')
+                matricula = MatriculaTurma.query.get_or_404(int(m_id))
+                if matricula.aluno_id != aluno.id:
+                    abort(403)
+                fn = {
+                    'formar': formar_em_turma,
+                    'evadir': evadir_em_turma,
+                    'transferir': transferir_em_turma,
+                }[action]
+                fn(matricula, data_saida=data_saida, observacao=observacao)
+
+                # Se o aluno ficou sem nenhuma matrícula ativa, sincroniza
+                # Aluno.turma_id (legacy) e dispara cascade financeiro só
+                # quando evadiu — alinhado à regra antiga.
+                if not aluno.vinculos_ativos:
+                    aluno.turma_id = None
+                    if action == 'evadir':
+                        try:
+                            res = services_financeiro.cancelar_plano_aluno(
+                                aluno,
+                                motivo=f'Aluno evadiu em {matricula.turma.nome}.'
+                            )
+                            if res.get('plano_cancelado'):
+                                flash(
+                                    f"Plano cancelado automaticamente: "
+                                    f"{res['mensalidades_canceladas']} mensalidade(s), "
+                                    f"{res['boletos_cancelados']} boleto(s).",
+                                    'info'
+                                )
+                        except Exception:
+                            db.session.rollback()
+                            current_app.logger.exception(
+                                'Falha ao cancelar plano de %s', aluno.nome)
+
+                db.session.commit()
+                labels = {'formar': 'formado', 'evadir': 'evadido',
+                          'transferir': 'transferido'}
+                flash(
+                    f'Vínculo com {matricula.turma.nome} marcado como '
+                    f'{labels[action]}.',
+                    'success'
+                )
+
+            else:
+                flash('Ação desconhecida.', 'danger')
+
+        except ValueError as ex:
+            db.session.rollback()
+            flash(str(ex), 'danger')
+
+        return redirect(url_for('admin.aluno_vinculos', id=aluno.id))
+
+    # GET — turmas disponíveis pra nova matrícula (todas, exceto as já ativas)
+    ativas_ids = {m.turma_id for m in aluno.vinculos_ativos}
+    turmas_disponiveis = [t for t in Turma.query.order_by(Turma.nome).all()
+                          if t.id not in ativas_ids]
+    return render_template('admin_aluno_vinculos.html',
+                           aluno=aluno,
+                           turmas_disponiveis=turmas_disponiveis,
+                           hoje=date.today())
 
 
 # ── Turmas ─────────────────────────────────────────────────────────────────────
