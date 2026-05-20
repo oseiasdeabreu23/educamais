@@ -96,24 +96,28 @@
             </button>
             {% endif %}
 
-            {% if b.status in ['aberto', 'vencido'] and current_user.tipo == 'admin' %}
-            <form method="POST"
-                  action="{{ url_for('admin.financeiro_cobranca_pago', id=b.id) }}"
-                  style="display:inline">
-              <button type="submit" class="btn btn-ghost btn-sm"
-                      title="Marcar como pago" style="color:var(--ok)">
-                <i class="bi bi-check2-circle"></i>
-              </button>
-            </form>
-            <form method="POST"
-                  action="{{ url_for('admin.financeiro_boleto_cancelar', id=b.id) }}"
-                  onsubmit="return confirm('Cancelar cobrança?')"
-                  style="display:inline">
-              <button type="submit" class="btn btn-ghost btn-sm"
-                      title="Cancelar" style="color:var(--bad)">
-                <i class="bi bi-x-circle"></i>
-              </button>
-            </form>
+            {% if b.status in ['aberto', 'vencido'] %}
+              {% if pode('boleto.registrar_pagamento') %}
+              <form method="POST"
+                    action="{{ url_for('admin.financeiro_cobranca_pago', id=b.id) }}"
+                    style="display:inline">
+                <button type="submit" class="btn btn-ghost btn-sm"
+                        title="Marcar como pago" style="color:var(--ok)">
+                  <i class="bi bi-check2-circle"></i>
+                </button>
+              </form>
+              {% endif %}
+              {% if pode('boleto.cancelar') %}
+              <form method="POST"
+                    action="{{ url_for('admin.financeiro_boleto_cancelar', id=b.id) }}"
+                    onsubmit="return confirm('Cancelar cobrança?')"
+                    style="display:inline">
+                <button type="submit" class="btn btn-ghost btn-sm"
+                        title="Cancelar" style="color:var(--bad)">
+                  <i class="bi bi-x-circle"></i>
+                </button>
+              </form>
+              {% endif %}
             {% endif %}
           </div>
         </td>

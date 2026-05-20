@@ -37,7 +37,7 @@
 <div class="row g-3">
   {# ── Lançamento manual ── #}
   <div class="col-lg-4">
-    {% if current_user.tipo == 'admin' %}
+    {% if pode('movimentacao.criar') %}
     <div class="card">
       <div class="card-h">
         <div>
@@ -95,7 +95,7 @@
     </div>
     {% endif %}
 
-    <div class="card{% if current_user.tipo == 'admin' %} mt-3{% endif %}">
+    <div class="card{% if pode('movimentacao.criar') %} mt-3{% endif %}">
       <form method="GET" class="stack-md">
         <div class="card-title">Período</div>
         <div>
@@ -184,7 +184,7 @@
               {% endif %}
             </td>
             <td>
-              {% if not m.boleto_id and current_user.tipo == 'admin' %}
+              {% if not m.boleto_id and pode('movimentacao.excluir') %}
               <form method="POST"
                     action="{{ url_for('admin.financeiro_movimentacao_excluir', id=m.id) }}"
                     onsubmit="return confirm('Excluir movimentação?')"

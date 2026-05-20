@@ -92,6 +92,7 @@
         </tbody>
       </table>
 
+      {% if pode('plano_pagamento.cancelar') %}
       <form method="POST" action="{{ url_for('admin.financeiro_plano_cancelar', aluno_id=aluno.id) }}"
             onsubmit="return confirm('Cancelar plano? Boletos abertos serão cancelados no Cora.')"
             style="margin-top:16px">
@@ -100,6 +101,7 @@
           <i class="bi bi-x-circle"></i> Cancelar plano
         </button>
       </form>
+      {% endif %}
     </div>
     {% else %}
     <div class="card">

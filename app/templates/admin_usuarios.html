@@ -81,9 +81,15 @@
                     onclick="liberarManual('gestor')">
               <i class="bi bi-graph-up me-1"></i> Criar acesso de Gestor
             </button>
+            <button type="button" class="btn btn-outline-secondary btn-sm"
+                    onclick="liberarManual('secretario')">
+              <i class="bi bi-clipboard2-pulse me-1"></i> Criar acesso de Secretário(a)
+            </button>
             <small class="text-muted d-block mt-1">
               Coordenador pode cadastrar alunos/profs/responsáveis e emitir cobranças, mas
               não editar nem excluir. Gestor é só leitura (dashboards e relatórios).
+              Secretário(a) cadastra e edita alunos/responsáveis/professores/turmas e
+              opera o financeiro do dia-a-dia (sem cancelar boletos/planos).
             </small>
           </div>
 
@@ -150,12 +156,21 @@
                   <span class="badge" style="background:rgba(245,158,11,.15); color:#b45309">Coordenador</span>
                 {% elif u.tipo == 'gestor' %}
                   <span class="badge" style="background:rgba(99,102,241,.15); color:#4338ca">Gestor</span>
+                {% elif u.tipo == 'secretario' %}
+                  <span class="badge" style="background:rgba(20,184,166,.15); color:#0f766e">Secretário(a)</span>
                 {% else %}
                   <span class="badge badge-responsavel">Responsável</span>
                 {% endif %}
               </td>
               <td>
                 <div class="table-actions">
+                  {% if u.tipo in ('coordenador', 'gestor', 'secretario') and u.id != current_user.id %}
+                  <a href="{{ url_for('admin.usuario_permissoes', user_id=u.id) }}"
+                     class="btn btn-sm btn-outline-info"
+                     title="{% if u.permissoes_customizadas %}Permissões personalizadas{% else %}Editar permissões{% endif %}">
+                    <i class="bi bi-shield-{% if u.permissoes_customizadas %}fill-check{% else %}lock{% endif %}"></i>
+                  </a>
+                  {% endif %}
                   <button class="btn btn-sm btn-outline-primary"
                           data-bs-toggle="modal"
                           data-bs-target="#editModal{{ u.id }}">

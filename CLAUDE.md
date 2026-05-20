@@ -1,7 +1,8 @@
 # CLAUDE.md — Guia para IA: EducaMais
 
-Este arquivo dá contexto completo para qualquer IA que trabalhe neste projeto.
-Leia antes de qualquer alteração.
+Este arquivo dá contexto essencial para qualquer IA que trabalhe neste projeto.
+Detalhes profundos de cada módulo estão em `docs/` — leia o arquivo correspondente
+**quando for mexer naquele módulo** (índice no final).
 
 ---
 
@@ -12,13 +13,13 @@ Leia antes de qualquer alteração.
 acompanhem notas, frequência, atividades, alertas e cursos com videoaulas.
 O nome e a logo da plataforma são configuráveis pelo admin sem mexer no código.
 
-**Estado atual (2026-05-19):** funcional, testado localmente, com **redesign visual completo**
-("Sistema Arvorecer") e **módulo financeiro** (mensalidades, boletos, fluxo de caixa,
-inadimplentes) com integração ao Banco Cora em modo mock — ver seções *Design system*
-e *Financeiro e integração Cora* abaixo. **Múltiplas matrículas de turma por aluno** com
-histórico (formado/evadido/transferido) — ver seção *Matrículas em turma* abaixo.
-**Aniversariantes** (diário/semanal/mensal) e **Relatórios** com KPIs, gráficos Chart.js
-e exportação PDF. Em fase de aprimoramento para implantação no instituto.
+**Estado atual (2026-05-20):** funcional, testado localmente, com redesign visual
+completo ("Sistema Arvorecer"), módulo financeiro (mensalidades, boletos, fluxo de
+caixa, inadimplentes) com Banco Cora em modo mock, múltiplas matrículas de turma
+por aluno com histórico, aniversariantes e relatórios com KPIs/gráficos/PDF,
+**perfil "Secretário(a)" + permissões customizáveis por usuário** (admin pode
+ajustar checkboxes individualmente em `/admin/usuarios/<id>/permissoes`).
+Em fase de aprimoramento para implantação no instituto.
 
 ---
 
@@ -76,6 +77,7 @@ app/templates/base.html   → app-shell (sidebar flutuante + topbar + drawer mob
 instance/backups/         → onde os arquivos .zip de backup ficam (criado on-demand)
 instance/cora_mock.json   → estado persistido do CoraMockClient (boletos + movs fake)
 migrations/               → controle de versão do banco (Alembic via Flask-Migrate)
+docs/                     → documentação detalhada por módulo (lida sob demanda)
 ```
 
 Banco de dados: SQLite em `instance/educamais.db` (dev). PostgreSQL para produção
@@ -105,36 +107,31 @@ Flask-Migrate configurado com `render_as_batch=True` (obrigatório para SQLite).
 - `Nota` — unique por `(aluno_id, disciplina_id, mes, ano)`
 - `Frequencia`, `Atividade`, `Observacao`
 
-### Novos (adicionados em 2026-04-28)
-- `Curso` — título, descrição, capa_url, ativo, **`duracao_meses`** (Integer, opcional — adicionado em 2026-05-04 junto do cadastro v2 do aluno)
+### Cursos/videoaulas (2026-04-28)
+- `Curso` — título, descrição, capa_url, ativo, `duracao_meses` (Integer, opcional)
 - `Modulo` — pertence a Curso, tem ordem
 - `Videoaula` — pertence a Modulo, tem video_url (YouTube/Vimeo), duracao_min, ordem
 - `MatriculaCurso` — N:N entre Aluno e Curso, unique por `(aluno_id, curso_id)`
 - `ProgressoVideoaula` — aluno + videoaula + assistido (bool), unique por `(aluno_id, videoaula_id)`
 - `ConfigSistema` — singleton (sempre ID=1): `nome` (str) + `logo_path` (str nullable)
 
-### Matrículas em turma (adicionado em 2026-05-19)
-- `MatriculaTurma` — vínculo aluno↔turma com histórico. `(aluno_id, turma_id, status, data_matricula, data_saida, observacao)`.
-  Status: `ativo|formado|evadido|transferido`. **Sem unique composto** — permite reentrada
-  (mesmo aluno em "Catequese 2026" e "Catequese 2027" são duas matrículas distintas; reabrir
-  uma matrícula encerrada também cria nova). Backrefs: `aluno.matriculas_turma` (dynamic) e
-  `turma.matriculas` (dynamic).
+### Matrículas em turma (2026-05-19)
+- `MatriculaTurma` — vínculo aluno↔turma com histórico. Status `ativo|formado|evadido|transferido`.
+  Sem unique composto — permite reentrada. **Detalhes em [docs/matriculas.md](docs/matriculas.md).**
 
-### Financeiro (adicionados em 2026-05-04)
+### Financeiro (2026-05-04)
 - `PlanoPagamento` — `(aluno, n_parcelas, valor_parcela, dia_vencimento, data_primeira, status, observacao)`.
-  Status: `ativo|cancelado|concluido`. Um aluno pode ter histórico, mas só **um plano ativo** por vez
-  (validado em `services_financeiro.plano_ativo_do_aluno`).
-- `Mensalidade.plano_id` — FK opcional pra `PlanoPagamento`. Mensalidades antigas (geradas por lote
-  manual) ficam com `plano_id=None`.
-- `Mensalidade.cancelada_em` — DateTime opcional, marcado quando o plano é cancelado e a mensalidade
-  ainda não tinha boleto pago.
-- `Aluno.mensalidade_padrao` — `Numeric(10,2)` opcional (valor sugerido na geração de lote)
-- `Mensalidade` — `(aluno, responsavel, mes, ano, valor, vencimento)` — unique por `(aluno_id, mes, ano)`
-- `Boleto` — `cora_boleto_id`, `status` (`aberto|pago|vencido|cancelado`), `valor`, `vencimento`,
-  `pago_em`, `link_pdf`, `link_boleto`. FK opcional pra `Mensalidade` (cascade)
-- `CategoriaDespesa` — `(nome unique, cor)` — categorias editáveis pelo admin
-- `Movimentacao` — `tipo` (`entrada|saida`), `categoria_id`, `descricao`, `valor`, `data`,
-  `boleto_id` (nullable, vincula entrada de boleto), `comprovante_path`, `criado_por_id`
+  Status: `ativo|cancelado|concluido`. Um aluno só tem **um plano ativo** por vez.
+- `Mensalidade` — `(aluno, responsavel, mes, ano, valor, vencimento)` — unique por `(aluno_id, mes, ano)`.
+  `plano_id` FK opcional. `cancelada_em` DateTime opcional.
+- `Aluno.mensalidade_padrao` — `Numeric(10,2)` opcional (valor sugerido na geração de lote).
+- `Boleto` — `cora_boleto_id`, `status` (`aberto|pago|vencido|cancelado`), valor, vencimento,
+  pago_em, link_pdf, link_boleto. FK opcional pra `Mensalidade` (cascade).
+- `CategoriaDespesa` — `(nome unique, cor)` — categorias editáveis pelo admin.
+- `Movimentacao` — `tipo` (`entrada|saida`), `categoria_id`, descricao, valor, data,
+  `boleto_id` (nullable, vincula entrada de boleto), `comprovante_path`, `criado_por_id`.
+
+**Detalhes do módulo financeiro em [docs/financeiro.md](docs/financeiro.md).**
 
 ---
 
@@ -157,157 +154,66 @@ Flask-Migrate configurado com `render_as_batch=True` (obrigatório para SQLite).
   - `cep` idem (8 dígitos). UF validada contra a lista das 27 siglas em `services.UFS_BR`.
   - Form usa ViaCEP no JS para auto-preencher logradouro/bairro/cidade/uf.
   - Cursos do aluno geridos via `MatriculaCurso` com checkbox múltiplo no próprio form.
-- **Status do aluno** (ativo/evadido/formado/transferido) — agora **derivado** das matrículas:
+- **Status do aluno** (ativo/evadido/formado/transferido) — derivado das matrículas:
   - A property `Aluno.status_derivado` é a fonte da verdade: `ativo` se há matrícula ativa;
-    senão o status da matrícula mais recente (formado/evadido/transferido); `sem_vinculo`
-    se nunca teve matrícula. Fallback final: `Aluno.status` legacy quando o aluno não tem
-    matrícula nenhuma (alunos cadastrados antes de 2026-05-19).
+    senão o status da matrícula mais recente; `sem_vinculo` se nunca teve matrícula.
+    Fallback final: `Aluno.status` legacy quando o aluno não tem matrícula nenhuma.
   - **ativo** é o único que aparece em dashboards, médias, frequência geral, e nos selects de
-    professor (lançar nota, frequência, observação). Filtros em `services.media_turma`,
-    `services.frequencia_geral`, `services.alunos_baixo_desempenho`,
-    `services._alunos_filtro_status`, `services.query_alunos_ativos_na_turma` (todos têm
-    parâmetro `incluir_inativos=False` por default e aplicam o critério derivado via
-    `_aluno_ativo_clausula()` ou subqueries `EXISTS` sobre `MatriculaTurma`).
-  - **evadido (form legacy)**: ao mudar de ativo→evadido em `/admin/alunos`,
-    `services_financeiro.cancelar_plano_aluno` é chamado automaticamente. **Idempotente** —
-    safe de chamar mais de uma vez.
-  - **evadido (via vínculos)**: ao marcar a última matrícula ativa como evadido em
-    `/admin/alunos/<id>/vinculos`, a mesma função é chamada. As duas rotas coexistem sem
-    conflito porque `cancelar_plano_aluno` não faz nada se não há plano ativo.
-  - **formado** / **transferido**: marcação manual via página de vínculos. Não cancela nada
-    (assume que tudo foi pago). Some dos dashboards de "ativos" mas plano permanece como
-    histórico.
-  - Filtro de status na listagem `/admin/alunos?status=ativo|evadido|formado` usa subqueries
-    `EXISTS` sobre `MatriculaTurma` (com fallback legacy pra `Aluno.status` quando o aluno
-    não tem matrícula).
-- **Matrículas em turma (multi-vínculo):**
-  - Um aluno pode estar matriculado em **N turmas simultaneamente** (`MatriculaTurma` N:N).
-  - **Criação**: form `/admin/alunos` tem checkboxes multi-select de turmas. Cada turma
-    marcada vira uma `MatriculaTurma` ativa via `services.matricular_em_turma`.
-  - **Edição**: form principal só mostra chips read-only e link "Gerenciar vínculos" pra
-    `/admin/alunos/<id>/vinculos` (evita conflitar com encerramento de matrículas).
-  - **Página de vínculos** `/admin/alunos/<id>/vinculos`: tabela de vínculos ativos
-    (botões Formar/Evadir/Transferir, cada um abre modal com data_saida + observação) e
-    tabela de histórico (todas as matrículas encerradas, ordenadas pela mais recente).
-    Form de "Nova matrícula" no sidebar permite reabrir vínculo com turma onde já formou
-    ou evadiu (cria nova matrícula, mantém o histórico).
-  - **Validação**: `services.matricular_em_turma` falha com `ValueError` se já existe
-    matrícula ativa pro par (aluno, turma). Reentrada só é permitida depois que a anterior
-    foi encerrada.
-  - **Compat legacy**: `Aluno.turma_id` continua existindo e é sincronizado com a "primeira
-    turma ativa" pra views/scripts antigos que ainda leem `aluno.turma` direto. Será
-    removido em fase 2 (depois que todo o código tiver migrado).
+    professor. Filtros aplicam o critério via `_aluno_ativo_clausula()` ou subqueries
+    `EXISTS` sobre `MatriculaTurma`.
+  - Mudar para **evadido** (form legacy ou via vínculos) chama `cancelar_plano_aluno`
+    automaticamente — **idempotente**, safe de chamar mais de uma vez.
+  - **formado** / **transferido**: marcação manual via página de vínculos. Não cancela nada.
+  - Detalhes do fluxo em [docs/matriculas.md](docs/matriculas.md).
 - **Responsável obrigatório só para menores:**
   - `Mensalidade.responsavel_id` é `nullable=True` (migration `08c5c41c858c`).
   - `criar_plano_pagamento` e `gerar_mensalidades_lote` exigem responsável apenas se
     `aluno.idade < 18`. Adultos podem ter plano sem responsável.
-  - `emitir_boleto` usa o próprio aluno como pagador (`aluno.cpf`, `aluno.telefone`) quando
-    `mensalidade.responsavel is None`.
-  - Tela de inadimplentes mostra "Pagador: o próprio aluno" quando não há responsável.
+  - `emitir_boleto` usa o próprio aluno como pagador quando `mensalidade.responsavel is None`.
 - **Plano de pagamento (parcelamento):**
-  - Criado em `/admin/financeiro/planos/<aluno_id>` (botão na linha do aluno).
+  - Criado em `/admin/financeiro/planos/<aluno_id>`.
   - **Estratégia híbrida**: registra todas as N mensalidades de uma vez, mas só **emite o boleto**
-    da primeira (e apenas se vencer em ≤ 30 dias — `JANELA_EMISSAO_DIAS`). Próximos boletos são
-    emitidos sob demanda (botão por mensalidade) ou via scheduler futuro.
+    da primeira (e apenas se vencer em ≤ 30 dias — `JANELA_EMISSAO_DIAS`). Próximos boletos
+    emitidos sob demanda.
   - **Vencimento empurrado pra próxima segunda** se cair sábado/domingo (`proximo_dia_util`).
-    Sem feriados — decisão consciente pra evitar dependência de `python-holidays`.
-  - **Início**: se hoje + 5 dias ≤ dia escolhido, começa este mês. Senão, próximo.
-  - **Idempotência**: `criar_plano_pagamento` falha com `ValueError` se aluno já tem plano ativo
-    (precisa cancelar antes pra criar novo).
-  - **Mensalidade pré-existente** do mesmo (aluno, mês, ano) é pulada (constraint do banco), não
-    duplica.
+    Sem feriados — decisão consciente.
+  - **Idempotência**: `criar_plano_pagamento` falha com `ValueError` se aluno já tem plano ativo.
 - **Financeiro:**
   - Mensalidade é única por `(aluno, mês, ano)` — constraint no banco.
-  - Boletos só são gerados via Cora (`services_cora.get_cora_client()`) — nunca instanciar
+  - Boletos só são gerados via `services_cora.get_cora_client()` — nunca instanciar
     `CoraClient` diretamente.
-  - `CORA_MODE=mock` (default) usa `CoraMockClient` com estado em `instance/cora_mock.json`.
-    `CORA_MODE=real` ainda **não** está implementado — o `CoraRealClient` levanta `NotImplementedError`.
-  - O webhook `/admin/financeiro/cora/webhook` é **público** (sem login). Em produção precisa
-    validar assinatura HMAC do Cora antes de marcar pagamento.
-  - Comprovantes de despesa salvam em `app/static/uploads/comprovantes/comp_<uuid>.<ext>`.
-    Formatos: PDF, PNG, JPG, JPEG, WEBP. Máximo 5 MB.
+  - `CORA_MODE=mock` (default) usa `CoraMockClient`. `CORA_MODE=real` ainda **não** está
+    implementado.
+  - O webhook `/admin/financeiro/cora/webhook` é **público** (sem login). Em produção
+    precisa validar HMAC do Cora.
+  - Comprovantes de despesa em `app/static/uploads/comprovantes/`. Máximo 5 MB.
   - Inadimplência só conta boletos com `status in (aberto, vencido)` E `vencimento < hoje`.
 
 ---
 
 ## O que já foi implementado
 
-**Admin:** CRUD de alunos (ficha v2 completa: CPF com dígito verificador, sexo, cor/raça, telefone,
-endereço com ViaCEP, PCD, status derivado, autorização de imagem LGPD, cursos múltiplos,
-**múltiplas turmas via checkboxes na criação**), turmas, professores (N:N disciplinas),
-disciplinas, responsáveis (N:N alunos), usuários (inclui tipo `aluno`). Filtro de status
-na listagem usa subqueries sobre `MatriculaTurma`. Dashboard com médias e alertas (só ativos)
-e **widget "Aniversariantes de hoje"** (só aparece quando há).
-Gestão de cursos: criar curso → módulos → videoaulas, matricular/desmatricular alunos, duração em meses.
-Configurações do sistema: alterar nome da plataforma e upload de logo.
-**Aniversariantes** em `/admin/aniversariantes?escopo=dia|semana|mes` — listagem com pílulas
-de período (hoje / semana corrente / mês), badge "Hoje!" e "Amanhã", botão WhatsApp com
-mensagem pronta. Permissão `aluno.ver`.
-**Vínculos de turma** em `/admin/alunos/<id>/vinculos` — gerenciamento de matrículas com
-ações Formar/Evadir/Transferir + nova matrícula. Vínculos ativos + histórico em tabelas
-separadas. Reentrada permitida (criar nova matrícula em turma onde aluno já formou/evadiu).
-**Relatórios** em `/admin/relatorios` — KPIs (ativos, formados, evadidos, taxa de evasão),
-3 gráficos Chart.js (donut por status, barras empilhadas por turma, linha temporal de saídas
-por ano), tabela detalhada por turma. Filtro por turma. Exportação PDF (`reportlab`, sem
-gráficos por enquanto — só KPIs e tabelas).
-**Backup e restauração** em `/admin/backup` — gera zip com banco + uploads, baixa,
-exclui ou restaura a partir de upload. Restauração cria pre-backup automático e força logout.
-**Financeiro** em `/admin/financeiro` — KPIs (recebido, atrasado, a receber hoje, previsto),
-mensalidades (gerar lote + emitir boleto), boletos (listar/cancelar/sincronizar), inadimplentes
-(escopo mês ou todos, com link WhatsApp), fluxo de caixa (entradas/saídas + lançamento manual
-com upload de comprovante), categorias de despesa editáveis. Integração com Banco Cora via
-`services_cora` (mock por padrão, real implementado apenas quando o CoraPro for ativado).
-**Plano de pagamento parcelado** em `/admin/financeiro/planos/<aluno_id>` (link na linha do aluno):
-cria N mensalidades de uma vez (parcelas de **1x até 36x** em select contínuo, default 12x),
-emite boleto da 1ª se vencer em ≤ 30 dias, vencimento empurrado pra próximo dia útil,
-cancelamento em massa, histórico. Auto-cancelamento ao mudar status para `evadido` (form legacy)
-ou ao evadir a última matrícula ativa (página de vínculos).
+**Admin:** CRUD de alunos (ficha v2 completa), turmas, professores, disciplinas,
+responsáveis, usuários. Dashboard com médias, alertas e widget de aniversariantes.
+Gestão de cursos com módulos/videoaulas. Configurações do sistema. Aniversariantes
+(diário/semanal/mensal). Vínculos de turma com histórico. Relatórios com KPIs/gráficos
+e PDF. Backup e restauração. Financeiro completo com plano de pagamento parcelado.
 
-**Professor:** Grid mensal de notas (Jan–Dez) com edição inline, exportação CSV,
-frequência por data/turma/disciplina, atividades com filtros, observações por aluno,
-histórico completo do aluno.
+**Professor:** Grid mensal de notas com edição inline, exportação CSV, frequência
+por data/turma/disciplina, atividades, observações, histórico do aluno.
 
 **Responsável:** boletim do filho, histórico de frequência, alertas automáticos.
 
-**Aluno:** dashboard com cards de resumo e gráfico Chart.js (evolução mensal por disciplina),
-boletim Jan–Dez com situação por disciplina, frequência com barra de progresso e histórico,
-lista de cursos matriculados com progresso, detalhe do curso em accordion, player de videoaula
-(embed YouTube/Vimeo) com marcação de aula concluída e navegação anterior/próximo.
-
-**Serviços (`services.py`):** `cpf_valido`, `cep_valido`, `uf_valida`, `so_digitos`, `UFS_BR`,
-`media_aluno`, `media_turma(turma, incluir_inativos=False)`, `frequencia_geral(incluir_inativos=False)`,
-`alunos_baixo_desempenho(limite=5.5, incluir_inativos=False)`, `queda_desempenho`, `stats_frequencia`,
-`faltas_consecutivas`, `alertas_frequencia`, `aviso_whatsapp`, `embed_url`,
-**`aniversariantes(escopo, incluir_inativos, hoje)`**, **`ESCOPOS_ANIVERSARIO`**,
-**`matricular_em_turma`**, **`formar_em_turma`**, **`evadir_em_turma`**, **`transferir_em_turma`**,
-**`matricula_ativa(aluno, turma)`**, **`_aluno_ativo_clausula`** (expressão SQL),
-**`_alunos_filtro_status(query, incluir_inativos)`**, **`query_alunos_ativos_na_turma(turma_id)`**,
-**`alunos_ativos_na_turma(turma)`**.
-
-**Serviços (`services_financeiro.py`):** `seed_categorias_padrao`, `gerar_mensalidades_lote`
-(usa `_alunos_filtro_status` — só inclui alunos ativos pelo critério derivado),
-`criar_mensalidade_avulsa`, `emitir_boleto`, `cancelar_boleto`, `registrar_pagamento_boleto`,
-`sincronizar_status_boletos`, `kpis_mes`, `fluxo_caixa`, `inadimplentes`,
-`registrar_movimentacao_manual`, `criar_plano_pagamento`, **`cancelar_plano_aluno` (idempotente)**,
-`plano_ativo_do_aluno`, `proximo_dia_util`.
-
-**Serviços (`services_relatorios.py`):** `kpis_status_alunos`, `distribuicao_por_turma`,
-`historico_anual(ano_inicio=None, ano_fim=None)` (usa `extract('year')` — portável SQLite + Postgres),
-`snapshot_completo(turma_id=None)`.
-
-**Serviços (`services_export.py`):** `fluxo_para_pdf`, `fluxo_para_xlsx`,
-`inadimplentes_para_pdf`, `inadimplentes_para_xlsx`, `boletos_para_pdf`, `boletos_para_xlsx`,
-**`relatorio_status_pdf(snapshot, filtro_turma, nome_instituicao)`** (KPIs + tabelas, sem
-gráficos).
+**Aluno:** dashboard com gráfico Chart.js, boletim Jan–Dez, frequência, cursos
+matriculados com progresso, player de videoaula com marcação de conclusão.
 
 **Context processor:** `inject_config_sistema()` em `__init__.py` injeta `config_sistema`
 em **todos** os templates automaticamente (incluindo `login.html` e `register.html` que
 não herdam de `base.html`).
 
-**Redesign visual (2026-05-03):** sistema repaginado a partir de handoff do Claude Design.
-Tipografia Sora, paleta azul moderna, sidebar flutuante, KPIs com gradiente, dark mode com
-toggle persistido em localStorage, drawer hamburger no mobile (<980px). Detalhes na seção
-*Design system* abaixo.
+**Redesign visual (2026-05-03):** sistema repaginado — tipografia Sora, paleta azul,
+sidebar flutuante, KPIs com gradiente, dark mode persistido em localStorage, drawer
+hamburger no mobile. Detalhes em [docs/design-system.md](docs/design-system.md).
 
 ---
 
@@ -317,19 +223,14 @@ toggle persistido em localStorage, drawer hamburger no mobile (<980px). Detalhes
 2. Envio automático de alertas via WhatsApp/e-mail
 3. Deploy em servidor (hoje só roda local)
 4. LGPD: termos de uso, logs de acesso
-5. Backup **agendado/automático** (hoje é manual via `/admin/backup` — agendamento periódico
-   precisaria de um scheduler tipo APScheduler)
-6. **Geração mensal automática de mensalidades** (mesma necessidade do scheduler do backup).
-7. **`CoraRealClient`** (em `services_cora.py`) — implementar quando o CoraPro for contratado.
-   Hoje só existe `CoraMockClient`. Validação HMAC do webhook precisa entrar junto.
+5. Backup **agendado/automático** (hoje é manual — precisaria APScheduler)
+6. **Geração mensal automática de mensalidades** (mesma necessidade do scheduler do backup)
+7. **`CoraRealClient`** — implementar quando o CoraPro for contratado. Validação HMAC
+   do webhook precisa entrar junto.
 8. **Fase 5 do redesenho de matrículas** — remover `Aluno.turma_id` e `Aluno.status` (legacy)
-   depois que todos os alunos antigos tiverem matrículas migradas. Migration de remoção
-   pendente. Hoje todos os filtros já têm fallback pra esses campos quando o aluno não tem
-   matrícula nenhuma, então a remoção será trivial — só precisa garantir que ninguém escreve
-   neles antes de remover.
-9. **Gráficos no PDF de relatórios** — hoje o PDF tem só KPIs + tabelas. Adicionar gráficos
-   exigiria matplotlib (decisão registrada na Fase 4 foi não adicionar a dependência ainda).
-10. ⚠️ (resolvido) Página `/admin/cursos` crashava com `TypeError` ao tentar `sum(attribute='videoaulas')` em listas — variável `total_videos` removida do template.
+   depois que todos os alunos antigos tiverem matrículas migradas.
+9. **Gráficos no PDF de relatórios** — exigiria matplotlib (decisão consciente de não
+   adicionar a dependência ainda).
 
 ---
 
@@ -338,61 +239,60 @@ toggle persistido em localStorage, drawer hamburger no mobile (<980px). Detalhes
 - `seed_data.py`: usava `Professor(disciplina_id=...)` — modelo não tem esse campo.
   Corrigido para `prof.disciplinas.append(disciplina)`.
 - `admin_configuracoes.html`: botão "Remover logo" estava dentro de um `<form>` aninhado
-  no form principal — HTML inválido, o browser ignorava o form interno. Corrigido usando
-  `<form id="formRemoverLogo">` externo ao form principal e atributo `form="formRemoverLogo"`
-  no botão. **Nunca aninhar `<form>` dentro de outro `<form>`.**
+  no form principal — HTML inválido. Corrigido usando `<form id="formRemoverLogo">`
+  externo e atributo `form="formRemoverLogo"` no botão.
+  **Nunca aninhar `<form>` dentro de outro `<form>`.**
 - **Tabelas brancas no dark mode:** Bootstrap 5.3 usa `box-shadow: inset 0 0 0 9999px var(--bs-table-bg)`
-  em cada `<td>` pra pintar o fundo, e `--bs-table-bg` herda de `--bs-body-bg` (branco).
-  Definir só `background-color` na `.table` não basta — precisa neutralizar `--bs-table-bg: transparent`
-  (e variantes hover/striped/active) na `.table` em CSS.
+  em cada `<td>` pra pintar o fundo. Definir só `background-color` na `.table` não basta —
+  precisa neutralizar `--bs-table-bg: transparent` (e variantes hover/striped/active).
 - **Utilities `.bg-light`, `.table-light`, `.text-dark` ignoravam o dark mode** porque o Bootstrap
   as marca com `!important` e cores hardcoded. Sobrescritas em `style.css` mapeiam pros tokens
-  do design (ver "Sobrescritas obrigatórias do Bootstrap" no design system).
-- **Login e register não herdam de `base.html`** — `base.html` exige `current_user.is_authenticated`
-  e renderiza só o app-shell. Páginas de auth são standalone (carregam Bootstrap CSS + style.css
-  diretamente).
+  (ver [docs/design-system.md](docs/design-system.md)).
+- **Login e register não herdam de `base.html`** — `base.html` exige `current_user.is_authenticated`.
+  Páginas de auth são standalone (carregam Bootstrap CSS + style.css diretamente).
 
 ---
 
-## Controle de acesso (RBAC simples)
+## Controle de acesso (RBAC)
 
-Implementação em [app/permissoes.py](app/permissoes.py). O campo `User.tipo`
-continua sendo a fonte da verdade do papel; a granularidade vem de uma
-**matriz de permissões em código** (`PERMISSOES`) que mapeia cada papel ao
-conjunto de chaves que ele pode executar.
+Matriz padrão por papel + **snapshot customizado por usuário**.
+Implementação em [app/permissoes.py](app/permissoes.py),
+[app/services_permissoes.py](app/services_permissoes.py) e
+[app/templates/admin_usuario_permissoes.html](app/templates/admin_usuario_permissoes.html).
+**Detalhes completos em [docs/permissoes.md](docs/permissoes.md).**
 
-### Papéis existentes
+### Papéis
 
-| Papel | Descrição |
+| Papel | Resumo |
 |---|---|
-| `admin` | Tudo. Wildcard `'*'`. |
-| `coordenador` | Cadastra alunos/profs/responsáveis (sem editar/excluir), matricula em cursos, emite cobrança, gera lote de mensalidades, vê financeiro e **relatórios**. Não acessa configurações/backup/usuários. |
-| `gestor` | Só leitura — dashboards, **relatórios**, financeiro. Não cria, edita ou exclui nada. |
-| `professor`, `responsavel`, `aluno` | Mantêm os decorators próprios das blueprints `/professor`, `/responsavel`, `/aluno`. Não usam a matriz. |
+| `admin` | Wildcard `*`. **Imutável** (não pode ser customizado). |
+| `coordenador` | Cadastra (sem editar/excluir), matrícula, financeiro básico, relatórios. |
+| `gestor` | Só leitura. |
+| `secretario` | Cadastra + edita alunos/responsáveis/profs/turmas, financeiro do dia-a-dia (sem cancelar). |
+| `professor`, `responsavel`, `aluno` | UI própria, decorators próprios, não usam a matriz. |
 
-### Usando permissões
+### Permissões customizadas por usuário (2026-05-20)
 
-- **Rota**: `@requires('aluno.criar')` → 403 se faltar permissão. Use para
-  rotas administrativas (admin/coordenador/gestor).
-- **Rotas com GET listagem + POST criação**: decorator com a permissão `.ver`
-  no topo + `if not pode(current_user, 'X.criar'): abort(403)` dentro do bloco
-  POST.
-- **Rotas estritamente admin** (configurações, backup, usuários, MP):
-  mantenha `@admin_required` para clareza.
-- **Template**: `{% if pode('aluno.editar') %}…{% endif %}` — esconde botões.
-  `pode` é injetado em todo template via context processor.
-- **Login**: papéis em `ROLES_ADMIN_LIKE` (admin, coordenador, gestor) são
-  redirecionados para `/admin/dashboard`. Os demais para suas blueprints.
+Admin pode personalizar permissões individualmente em `/admin/usuarios/<id>/permissoes`:
+- "Personalizar permissões" → faz snapshot do set padrão do papel em
+  `UsuarioPermissao(user_id, chave)` e seta `User.permissoes_customizadas = True`.
+- Marca/desmarca checkboxes agrupados por recurso (45 chaves em 13 grupos).
+- "Restaurar padrão do papel" → apaga snapshot e volta a herdar do papel.
+- **Admin é sempre wildcard** independentemente da flag (proteção "último admin").
+- **Self-protection**: admin não edita as próprias permissões (rota redireciona).
+- **Customização só vale pros 4 papéis admin-like** (admin/coordenador/gestor/secretário).
 
-### Adicionar papel novo
+### Uso no código
 
-1. Adicione a chave em `PERMISSOES` com o set de chaves apropriadas.
-2. Adicione o label em `ROLES_LABEL`.
-3. Inclua em `ROLES_ADMIN_LIKE` se o papel usa a UI `/admin/*`.
-4. Inclua em `ROLES_CRIAVEIS_ADMIN` se admin deve poder criar via
-   `/admin/usuarios` (a UI já cobre os 3 atuais via botões "Criar acesso").
+- **Rota**: `@requires('aluno.criar')` → 403 se faltar permissão.
+- **Template**: `{% if pode('aluno.editar') %}…{% endif %}` — `pode` é injetado em todo template.
+- **Rotas estritamente admin** (raras — ferramentas mock do Cora): mantém `@admin_required` legacy.
 
-Sem migration de banco — `User.tipo` é `String(20)` aceita qualquer valor.
+### Adicionar papel novo / permissão nova
+
+Ver [docs/permissoes.md](docs/permissoes.md) (checklist completo).
+
+---
 
 ## Convenções do projeto
 
@@ -400,8 +300,8 @@ Sem migration de banco — `User.tipo` é `String(20)` aceita qualquer valor.
   `aluno_required` (em `routes_aluno.py`) — em vez de roles no Flask-Login.
 - Flash messages usam classes Bootstrap: `success`, `danger`, `warning`, `info`.
 - Templates herdam de `base.html` via `{% extends 'base.html' %}`.
-  Exceções: `login.html` e `register.html` são standalone (carregam Bootstrap CSS + style.css
-  diretamente) — mas recebem `config_sistema` via context processor.
+  Exceções: `login.html` e `register.html` são standalone — mas recebem
+  `config_sistema` via context processor.
 - Senhas sempre com `bcrypt.hashpw` — nunca salvar em texto puro.
 - Formulários de edição/exclusão usam POST com campo hidden `action`.
 - O campo `PYTHONPATH=.` é necessário para rodar scripts fora da raiz do projeto.
@@ -409,480 +309,28 @@ Sem migration de banco — `User.tipo` é `String(20)` aceita qualquer valor.
   `db.create_all()` para alterar tabelas existentes.
 - `render_as_batch=True` está ativo no Migrate — necessário para SQLite suportar
   `ALTER TABLE` via recriação de tabela.
+- **Tema dark/light**: nunca hardcode cores hex em templates novos — use sempre os
+  tokens do design system. Detalhes em [docs/design-system.md](docs/design-system.md).
 
 ---
 
-## Backup e restauração
-
-Implementação em [app/services_backup.py](app/services_backup.py) e rotas
-`/admin/backup*` em [app/routes_admin.py](app/routes_admin.py).
-
-### Formato do backup
-Cada backup é um `.zip` em `instance/backups/` contendo:
-- `educamais.db` — snapshot do SQLite via API `sqlite3.backup()` (atômica, funciona com
-  conexões abertas — não usar `shutil.copy` direto no arquivo do banco em runtime).
-- `uploads/<arquivos>` — todo o conteúdo de `app/static/uploads/`.
-- `manifest.json` — `{version, created_at, app, db_size_bytes, uploads}`.
-
-Nome do arquivo: `backup_YYYY-MM-DD_HH-MM-SS.zip`. Pré-restaurações usam prefixo
-`pre-restore_` pra distinção fácil na listagem.
-
-### Resolução do caminho do SQLite
-`SQLALCHEMY_DATABASE_URI = sqlite:///educamais.db` é **relativo ao `app.instance_path`**
-(não ao `root_path`). O helper `_db_path()` cuida disso — se mexer no service, lembrar:
-`Path(app.instance_path) / raw`.
-
-### Restauração — rede de segurança
-O `restaurar_backup()` sempre cria um `pre-restore_*` antes de sobrescrever, pra dar pra
-reverter caso o backup restaurado esteja corrompido ou antigo demais.
-
-Sequência:
-1. Valida zip + presença de `educamais.db`.
-2. Cria pre-backup automático.
-3. `db.session.close()` + `db.engine.dispose()` (libera handles do SQLAlchemy).
-4. Sobrescreve `instance/educamais.db`.
-5. Limpa `app/static/uploads/` e copia uploads do zip.
-6. A rota força `logout_user()` e redireciona pra `/login` (sessão Flask-Login pode
-   estar referenciando IDs que mudaram).
-
-### Segurança
-- `_extensao_valida` **não** se aplica aqui — quem valida é `caminho_backup()` /
-  `excluir_backup()`: rejeitam `..`, `/`, `\` e qualquer nome que não termine em `.zip`.
-- Restauração exige campo `confirmacao = "RESTAURAR"` no form (digitado a mão).
-- Endpoints todos com `@admin_required`.
-
-### Limitações conhecidas
-- Só SQLite por enquanto. Se migrar pro Postgres em prod, trocar `_db_path()` por
-  `pg_dump`/`pg_restore` em subprocess.
-- Restauração não migra schema — se o backup é de uma versão mais antiga do app
-  (com migrations diferentes), pode quebrar. Sempre rodar `flask db upgrade` depois
-  de restaurar um backup antigo.
-
----
-
-## Financeiro e integração Cora
-
-Implementação em [app/services_cora.py](app/services_cora.py),
-[app/services_financeiro.py](app/services_financeiro.py) e rotas
-`/admin/financeiro*` em [app/routes_admin.py](app/routes_admin.py).
-Templates: `admin_financeiro*.html`.
-
-### Arquitetura em camadas
-
-1. **`services_cora.py`** — só fala HTTP com o Cora. Zero conhecimento de models.
-   Define a interface `CoraClient` com 4 métodos (`criar_boleto`, `consultar_boleto`,
-   `cancelar_boleto`, `listar_movimentacoes`) e duas implementações:
-   - `CoraMockClient` — guarda estado em `instance/cora_mock.json`. Tem `simular_pagamento()`
-     extra (não existe no real) pra desenvolvimento local.
-   - `CoraRealClient` — placeholder (`NotImplementedError`). Implementar quando o
-     CoraPro estiver ativo: OAuth2 client_credentials + mTLS, header `Idempotency-Key`
-     em criação de boleto, base URL `api.cora.com.br` (staging em `api.stage.cora.com.br`).
-
-   Factory `get_cora_client()` lê `current_app.config['CORA_MODE']` (`mock` default ou `real`).
-
-2. **`services_financeiro.py`** — regras de negócio puras com SQLAlchemy. Funções principais:
-   - `seed_categorias_padrao()` — cria 5 categorias defaults (Salário, Aluguel, Material,
-     Água/Luz, Outros). Idempotente. Chamada na primeira visita ao dashboard.
-   - `gerar_mensalidades_lote(mes, ano, valor_default=None)` — itera alunos com `turma_id`,
-     pula quem já tem mensalidade do mês, exige responsável e valor (de `aluno.mensalidade_padrao`
-     ou do `valor_default`). Devolve dict com contadores e listas de pulados.
-   - `emitir_boleto(mensalidade)` — chama `CoraClient.criar_boleto`, persiste `Boleto`.
-   - `registrar_pagamento_boleto(boleto, pago_em=None)` — idempotente: se já está pago,
-     não duplica `Movimentacao`. Cria entrada de fluxo com `boleto_id` ligado.
-   - `sincronizar_status_boletos()` — fallback ao webhook: itera boletos abertos/vencidos
-     e consulta o Cora. Devolve `{pagos, vencidos, erros}`.
-   - `kpis_mes`, `fluxo_caixa`, `inadimplentes`, `registrar_movimentacao_manual`.
-
-3. **`routes_admin.py`** — endpoints `/admin/financeiro*`. Todos `@admin_required`,
-   exceto `/admin/financeiro/cora/webhook` que é **público** (Cora não autentica antes
-   de chamar — em produção, validar HMAC).
-
-### Modo mock vs real
-
-- **Por padrão** o sistema roda em `CORA_MODE=mock`. Não precisa de credenciais.
-  Boletos viram entradas no `cora_mock.json`. O botão "Simular pagamento" (ícone
-  `bi-check2-square`) só aparece nas tabelas quando o client é o mock — usa
-  `isinstance(cora, CoraMockClient)`.
-- Pra **trocar pro real** (quando o CoraPro for contratado): `.env` com `CORA_MODE=real`,
-  implementar `CoraRealClient.__init__` com `requests.Session(cert=(cert_path, key_path))`,
-  e implementar os 4 métodos contra `https://api.cora.com.br/`.
-- O `cora_mock.json` **é** incluído no backup automático (está em `instance/`, e o backup
-  copia o `.db`, mas o JSON do mock fica de fora — é estado de desenvolvimento, não dado
-  de produção). Em produção real, o estado vive no Cora, não no app.
-
-### Webhook do Cora
-
-Endpoint `POST /admin/financeiro/cora/webhook` aceita JSON `{cora_id, evento}`
-onde `evento ∈ {pago, cancelado}`. Sem autenticação Flask-Login (Cora chama de fora).
-
-**Em produção**: o Cora envia um header com assinatura HMAC — validar antes de chamar
-`registrar_pagamento_boleto()`. Sem essa validação, qualquer um na internet pode marcar
-boleto como pago. **Não esquecer disso ao implementar `CoraRealClient`.**
-
-Pra desenvolvimento local sem URL pública, usar o botão "Simular pagamento" no admin
-ou chamar diretamente o endpoint via curl.
-
-### Comprovantes
-
-Lançamentos manuais de despesa (`/admin/financeiro/movimentacao/nova`) aceitam upload
-opcional de comprovante. Salvos em `app/static/uploads/comprovantes/comp_<uuid12>.<ext>`,
-acessíveis via `url_for('static', filename='uploads/' + comprovante_path)`. O backup
-automático cobre essa pasta (parte de `app/static/uploads/`).
-
-Validação no `routes_admin.py`: extensões em `COMPROVANTE_EXTENSOES`, tamanho máximo
-em `COMPROVANTE_MAX_BYTES` (5 MB). Movimentação vinda de boleto **não** aceita
-exclusão pelo botão de lixeira (cancelar o boleto é o caminho).
-
-### Limitações conhecidas
-
-- Geração mensal automática não está implementada — admin precisa clicar "Gerar lote"
-  todo mês. Implementar com APScheduler quando o sistema estiver em produção contínua.
-- `CoraRealClient` não implementado. Tudo testado em mock.
-- Mock não gera PDF real — endpoints `/admin/financeiro/cora/mock-pdf/<cora_id>` e
-  `/admin/financeiro/cora/mock-boleto/<cora_id>` retornam texto placeholder. Em produção
-  o Cora retorna a URL pública do PDF/boleto.
-- Lembrete por WhatsApp na tela de inadimplentes é só um link `wa.me/` — não envia
-  automaticamente. Disparo automático fica pra fase 2 (provavelmente via `services.aviso_whatsapp`).
-
----
-
-## Matrículas em turma (multi-vínculo + histórico)
-
-Adicionado em **2026-05-19** pra suportar alunos cursando múltiplas turmas
-simultaneamente e manter histórico de turmas anteriores (formado/evadido/transferido).
-
-Implementação:
-- Modelo [app/models.py](app/models.py) → `MatriculaTurma`.
-- Properties derivadas em `Aluno`.
-- Helpers em [app/services.py](app/services.py).
-- Rotas + UI em [app/routes_admin.py](app/routes_admin.py) e
-  [app/templates/admin_aluno_vinculos.html](app/templates/admin_aluno_vinculos.html).
-- Migration [migrations/versions/416ed464ea47_matriculas_turma_com_historico_de_.py](migrations/versions/416ed464ea47_matriculas_turma_com_historico_de_.py).
-
-### Modelo de dados
-
-```python
-class MatriculaTurma(db.Model):
-    id, aluno_id, turma_id
-    status: 'ativo' | 'formado' | 'evadido' | 'transferido'
-    data_matricula (default=today), data_saida (nullable), observacao
-```
-
-**Sem unique composto** por design. Mesmo aluno em "Catequese 2026" e
-"Catequese 2027" são duas matrículas distintas (turmas diferentes). Mesmo aluno
-**reentrando** numa turma onde já formou/evadiu também cria nova matrícula — o
-histórico de cada "passagem" fica preservado independentemente. A validação de
-"não duplicar" só impede 2 matrículas **ativas** simultâneas no mesmo par
-(aluno, turma) — checada por `services.matricular_em_turma`.
-
-### Status derivado
-
-`Aluno.status_derivado` é a fonte da verdade. Calcula:
-1. `ativo` se existe `MatriculaTurma(status='ativo')` para o aluno;
-2. senão, status da matrícula mais recente (`vinculos_historico[0].status`);
-3. senão, fallback pra `Aluno.status` legacy (alunos antigos sem matrícula);
-4. senão, `'sem_vinculo'`.
-
-Todos os filtros do sistema (`_alunos_filtro_status`, `query_alunos_ativos_na_turma`,
-filtro da listagem `/admin/alunos`, etc) usam `_aluno_ativo_clausula()`, que expressa
-o mesmo critério como SQL `EXISTS` + `OR` pra fallback legacy.
-
-### Backfill + compat
-
-A migration `416ed464ea47` é **idempotente** (criamos a tabela com check
-`IF NOT EXISTS` porque ela pode já existir via `db.create_all()` em dev).
-O backfill cria uma `MatriculaTurma` pra cada `Aluno` com `turma_id != None`,
-usando `Aluno.status` como status inicial. Backfill só roda se a tabela estiver
-vazia (segurança).
-
-Campos legacy mantidos:
-- `Aluno.turma_id` — sincronizado com a "primeira turma ativa" na criação.
-  Lido por código antigo (templates `aluno.turma.nome`, etc).
-- `Aluno.status` — ainda editável pelo form de edição. Quando muda para `evadido`,
-  o `editar_aluno` chama `cancelar_plano_aluno` (regra antiga, idempotente).
-
-### Rotas
-
-- `GET /admin/alunos/<id>/vinculos` — página dedicada com tabela de vínculos
-  ativos + histórico + form "Nova matrícula".
-- `POST /admin/alunos/<id>/vinculos` — ações: `matricular`, `formar`, `evadir`,
-  `transferir`. Cada ação encerrante aceita `data_saida` e `observacao`.
-- Form `/admin/alunos` (criação): checkboxes `name="turma_ids"` criam N matrículas
-  via `_matricular_turmas_iniciais`.
-- Filtro `/admin/alunos?status=ativo|evadido|formado|transferido` usa subqueries
-  `EXISTS` sobre `MatriculaTurma`.
-
-### Cascade financeiro
-
-Cancela plano automaticamente quando o aluno **fica sem nenhuma matrícula ativa**
-após uma evasão (regra nova, na rota de vínculos). A regra antiga continua
-funcionando (mudar `Aluno.status` legacy para `evadido` via form principal cancela
-o plano também). Como `cancelar_plano_aluno` é **idempotente**, as duas rotas
-coexistem sem duplicar cancelamento.
-
-### Limitações conhecidas
-
-- `Aluno.turma_id` legacy ainda existe — fase 5 do redesenho remove
-  (item 8 da seção *O que ainda NÃO foi feito*).
-- Formar/Evadir/Transferir não notifica responsáveis automaticamente.
-
----
-
-## Relatórios
-
-Implementação em [app/services_relatorios.py](app/services_relatorios.py),
-[app/services_export.py](app/services_export.py) (função `relatorio_status_pdf`)
-e rotas `/admin/relatorios*` em [app/routes_admin.py](app/routes_admin.py).
-Template: [app/templates/admin_relatorios.html](app/templates/admin_relatorios.html).
-
-### O que mostra
-
-- **4 KPIs**: ativos, formados, evadidos (com taxa de evasão como sub), cadastros totais.
-- **Donut** (Chart.js): distribuição atual por status.
-- **Barras empilhadas** (Chart.js): matrículas por turma (ativo/formado/evadido/transferido).
-- **Linha temporal** (Chart.js): saídas por ano usando `data_saida` das matrículas
-  encerradas.
-- **Tabela**: detalhamento por turma com mesmos dados das barras.
-
-### Filtros
-
-`?turma_id=<id>` restringe o detalhamento por turma (KPIs e histórico continuam
-globais — fazem mais sentido sem filtro).
-
-### Exportação PDF
-
-`GET /admin/relatorios/pdf?turma_id=<id>` baixa PDF com KPIs + tabelas. Implementado
-em `services_export.relatorio_status_pdf` usando reportlab. **Sem gráficos** — adicionar
-exigiria matplotlib (decisão consciente pra evitar nova dependência).
-
-### Permissão
-
-`relatorio.ver` — admin (via `*`), coordenador e gestor.
-
-### Portabilidade SQL
-
-`historico_anual` usa `extract('year', ...)` em vez de `strftime('%Y', ...)` pra
-funcionar tanto em SQLite (dev) quanto Postgres (prod no Supabase).
-
----
-
-## Aniversariantes
-
-Implementação em [app/services.py](app/services.py) (`aniversariantes`) e rotas
-`/admin/aniversariantes*` em [app/routes_admin.py](app/routes_admin.py).
-Templates: [app/templates/admin_aniversariantes.html](app/templates/admin_aniversariantes.html)
-+ widget no dashboard admin.
-
-### O que mostra
-
-`GET /admin/aniversariantes?escopo=dia|semana|mes`:
-- **dia**: aniversariantes de hoje.
-- **semana**: semana corrente (segunda a domingo).
-- **mes**: mês corrente.
-
-Tabela com nome, turma, data de aniversário, dia da semana, idade que faz,
-telefone e botão WhatsApp com mensagem pronta. Badges "Hoje!" e "Amanhã".
-
-Dashboard admin tem **widget compacto** que só aparece quando há aniversariantes hoje
-— até 5 chips visíveis + link "ver todos".
-
-### Critérios
-
-- Só alunos com `status_derivado == 'ativo'` (passa pelo `_alunos_filtro_status`).
-- Só alunos com `data_nascimento` preenchida.
-- Usa `extract('month'/'day')` (portável SQLite + Postgres).
-- Cobre 29/02 em ano não-bissexto (assume 28/02).
-- Ordenado por (mes, dia, nome).
-
-### Permissão
-
-`aluno.ver` — admin, coordenador, gestor.
-
----
-
-## Licenciamento via Painel
-
-Implementação em [app/services_licenca.py](app/services_licenca.py),
-[app/routes_licenca.py](app/routes_licenca.py) e hook `before_request` em
-[app/__init__.py](app/__init__.py). Painel externo:
-`https://painel-licencas-rho.vercel.app` (`POST /api/licenses/validate`).
-
-### Visão geral
-
-O app valida sua licença a cada request em endpoints não-livres. O resultado é
-cacheado em `instance/licenca_cache.json` por `PAINEL_LICENCA_CACHE_HORAS` (default 6h).
-Se o painel ficar inacessível, usa o cache mesmo expirado até `PAINEL_LICENCA_GRACE_DIAS`
-(default 3). Passou disso, retorna `resultado=offline_grace_expirado`.
-
-### Onde fica a configuração
-
-- **API key, documento (CPF/CNPJ), tipo de cliente e modo** → tabela
-  `config_licenca` (singleton, modelo `ConfigLicenca`). Editáveis pela UI
-  em `/admin/licenca`. Persiste sem precisar mexer no `.env`.
-- **URL do painel, cache, grace, debug** → variáveis em `.env`
-  (`PAINEL_LICENCA_URL`, `PAINEL_LICENCA_CACHE_HORAS`,
-  `PAINEL_LICENCA_GRACE_DIAS`, `PAINEL_LICENCA_DEBUG_RESULTADO`).
-
-`services_licenca._config_obrigatoria()` lê do banco primeiro; se vazio,
-faz fallback nas envs `PAINEL_LICENCA_API_KEY`/`_DOCUMENTO`/`_TIPO_CLIENTE`
-(retrocompat com instalações antigas).
-
-### Modos
-
-- **`bloqueio`** (default): redireciona pra `/licenca-bloqueada` quando
-  inválida. Enquanto a licença não validar como `ativo`, o app fica limitado —
-  o admin ainda consegue logar e abrir `/admin/licenca` (whitelisted) pra
-  configurar/revalidar.
-- **`log`**: só registra `WARNING` quando inválida e segue. Útil em dev
-  enquanto está validando a integração — não usar em produção.
-
-### Endpoints sempre liberados (whitelist do `before_request`)
-
-`static`, `healthz`, `licenca.bloqueada`, `licenca.admin`, `auth.login`,
-`auth.logout`, `auth.register`. Endpoint `None` (404) também passa, pra não criar
-loop em rotas inexistentes.
-
-### Machine ID — onde mora?
-
-- **Postgres (prod)**: coluna `machine_id String(64) nullable` em `ConfigSistema`
-  (singleton). Vercel é readonly FS, então **não** dá pra usar arquivo.
-- **SQLite (dev)**: `instance/machine_id.txt` (criado na 1ª chamada, mode 0600).
-
-A detecção é feita por prefixo da URI: `current_app.config['SQLALCHEMY_DATABASE_URI']`
-começando com `sqlite:` usa arquivo; qualquer outra coisa usa o banco. A coluna
-existe em ambos os bancos via migration `e7b91d8f2c45` — só não é populada em dev.
-
-### Cache e grace
-
-O dict salvo em `licenca_cache.json` tem este formato:
-
-```json
-{
-  "valido": true,
-  "resultado": "ativo",
-  "fonte": "api|cache|cache_grace|debug|grace_expirado|config",
-  "validado_em": "2026-05-11T10:00:00",
-  "expira_em": "2026-05-11T16:00:00",
-  "mensagem": "",
-  "resposta_painel": { ... }
-}
-```
-
-`info_licenca()` é **leitura pura** (não bate no painel). `validar_licenca()` é
-o orquestrador. `force_refresh=True` ignora o TTL mas ainda cai no grace se a
-chamada HTTP falhar.
-
-### Testando branches sem mexer no painel
-
-`PAINEL_LICENCA_DEBUG_RESULTADO=<valor>` curto-circuita `validar_licenca` e
-devolve um dict sintético com aquele `resultado`. **Não persiste no cache real**.
-Aceita qualquer string — incluindo os "locais" (`erro_rede`, `offline_grace_expirado`).
-Em produção, deixar vazio.
-
-### Resultados possíveis
-
-Do painel: `ativo`, `vencido`, `pendente`, `suspenso`, `bloqueado`, `cancelado`,
-`nao_encontrado`, `limite_excedido`.
-Locais: `erro_rede` (não usado diretamente), `offline_grace_expirado`,
-`sem_configuracao` (envs faltando), `desconhecido` (resposta atípica).
-
-Só `ativo` é considerado válido (`RESULTADOS_VALIDOS` em `services_licenca.py`).
-
-### Telas
-
-- `GET /licenca-bloqueada` — pública, standalone (não herda `base.html`).
-  POST com `action=revalidar` força nova validação; se voltar a ficar válida,
-  redireciona pro login. Admin logado vê atalho pra `/admin/licenca`.
-- `GET /admin/licenca` — admin_required, dentro do app-shell. Mostra status,
-  parâmetros técnicos (env), machine_id e form de edição com 4 campos:
-  tipo de cliente, documento (CPF/CNPJ), modo, API key (mascarada quando já
-  configurada). Ações:
-  - `action=salvar` — persiste no banco, invalida cache, dispara
-    `validar_licenca(force_refresh=True)` imediatamente.
-  - `action=revalidar` — força nova consulta sem mexer na config.
-  - `action=limpar_api_key` — remove só a key (mantém documento/modo).
-- Card "Licença de uso" em `/admin/configuracoes` linka pro detalhe.
-
-### Limitações conhecidas
-
-- HTTP timeout e retries são **hardcoded** em `services_licenca.py`
-  (`_HTTP_TIMEOUT=8s`, 2 retries com backoff 0.6s). Se precisar mexer, edita
-  o módulo — não exposto via env.
-- O Painel **não tem** webhook que avise mudança de status — depende do TTL
-  + revalidação manual. Em uso real, o admin clica "Revalidar agora" depois
-  de regularizar no painel.
-- `before_request` consulta cache a cada request; numa rede muito lenta isso
-  não é problema, mas evite chamar `force_refresh=True` em hot paths.
-
----
-
-## Design system
-
-Tokens, componentes e padrões visuais. Tudo em [app/static/css/style.css](app/static/css/style.css).
-
-### Tokens (CSS custom properties)
-
-Light é o default; dark é ativado via `data-theme="dark"` no `<html>` (toggle no topbar
-persiste em `localStorage` com a chave `arvorecer-theme`).
-
-- **Brand:** azul `--brand-500: #3b82f6` (light usa `--primary: #2563eb`, dark usa `#3b82f6`).
-- **Texto:** `--text` (principal), `--text-2` (secundário), `--text-3` (legendas/dim).
-  No dark, `--text-3` é `#9ba5c4` (passa WCAG AA — não baixar).
-- **Surface:** `--bg`, `--bg-2` (sidebar/topbar), `--surface` (card), `--surface-2`/`--surface-3`
-  (hover/nested).
-- **Score:** `--score-ok-bg/fg`, `--score-warn-bg/fg`, `--score-bad-bg/fg`. No dark os bg
-  são `rgba(...,.22-.24)` + borda colorida (definida em regras `[data-theme="dark"]`)
-  pra dar forma sobre o surface escuro.
-- **Tipografia:** Sora (Google Fonts) em `--font-display` e `--font-body`.
-- **Radius:** `--r-sm 8`, `--r-md 12`, `--r-lg 18` (cards), `--r-xl 24` (sidebar/topbar).
-- **Aliases legados:** `--success`, `--danger`, `--warning`, `--text-primary`, `--text-muted`,
-  `--card-bg`, etc. apontam pros tokens novos — preservados pra não quebrar templates antigos.
-
-### Componentes principais
-
-- **`.app-shell`** (no `<body class="app">`): grid de duas colunas — sidebar 248px + main.
-- **`.sidebar`** flutuante com `border-radius` 24, fundo `--bg-2`, sticky. No mobile
-  (<980px) vira drawer com `transform: translateX(-100%)` controlado por `.drawer-open` no body.
-- **`.topbar`** com título + subtítulo, busca e botões de ícone (notificações + toggle de tema).
-- **`.kpi`** com 6 variantes (`.kpi-blue`, `.kpi-cyan`, `.kpi-violet`, `.kpi-emerald`,
-  `.kpi-amber`, `.kpi-rose`, `.kpi-soft`). Usadas em todos os dashboards.
-- **`.score`** + `.score-ok/warn/bad` (notas e médias). Sempre com `font-variant-numeric: tabular-nums`.
-- **`.badge`** pill (default + variantes `.badge-ok/warn/bad/info/primary`). Aliases pras
-  classes do Bootstrap (`.bg-success`, `.bg-danger`, etc.) mapeiam pra `.badge-ok/bad`.
-- **`.donut`** CSS-only via `conic-gradient` (usado no dashboard do responsável).
-- **`.quick-action`** botão de ação rápida com ícone colorido + título + sub.
-- **`.empty-state`** padrão pra "sem dados ainda".
-
-### Sobrescritas obrigatórias do Bootstrap
-
-Carregamos o Bootstrap 5.3 (modal, accordion, dropdown, grid, utilities) mas vários
-utilities forçam cores claras com `!important`. As sobrescritas estão em `style.css`:
-
-- `--bs-table-bg: transparent` e `--bs-table-hover-bg: var(--surface-2)` na `.table`
-  (Bootstrap pinta cada `<td>` via box-shadow inset).
-- `.bg-light` → `var(--surface-2)` / `.bg-white` → `var(--surface)`.
-- `.table-light` (em `<thead>` ou `<tr>`) → mapeada pros tokens **e** com `box-shadow inset`
-  pra vencer o truque do Bootstrap.
-- `.text-dark`/`.text-light` em dark mode → `var(--text)` (senão badges com texto preto
-  forçado ficam ilegíveis sobre fundo escuro).
-- `.modal-content`, `.accordion-item`, `.accordion-button`, `.list-group-item`,
-  `.breadcrumb-item`, `.alert.*` — todos restilizados pra usar tokens.
-
-### Padrões de UI
-
-- **Empty state**: ícone Bootstrap-Icons grande + opacidade 0.35 + mensagem dim centralizada.
-- **Score colorido por faixa**: <5 = bad (vermelho), 5–6.9 = warn (amarelo), ≥7 = ok (verde).
-- **CRUD admin**: form à esquerda (col-lg-4) + tabela à direita (col-lg-8) com modal de edição.
-- **Breadcrumb**: usar Bootstrap markup (`<nav><ol class="breadcrumb">...`) — CSS já restilizado.
-- **Forms**: usar `.input`, `.label`, `.select` (estilizados via tokens).
-  `.form-control`/`.form-select`/`.form-label` do Bootstrap também funcionam (mesmo estilo).
-- **Tema dark/light**: respeite os tokens — **nunca hardcode cores hex em templates novos**.
-  Para cores semânticas use `var(--ok|warn|bad|primary)`. Para texto use `var(--text|text-2|text-3)`.
-
-### Ícones
-
-Usamos **Bootstrap Icons** (não os ícones Lucide do design original). Mapeamentos comuns:
-`bi-tree-fill` (brand), `bi-grid-fill` (dashboard), `bi-people-fill` (turmas),
-`bi-mortarboard-fill` (professores), `bi-play-btn-fill` (cursos), `bi-pencil-fill` (notas),
-`bi-check-circle-fill` (frequência), `bi-clipboard-fill` (atividades), `bi-bell-fill`
-(notificações), `bi-moon-stars-fill`/`bi-sun-fill` (toggle tema).
+## Documentação detalhada por módulo
+
+Cada arquivo abaixo é independente. Leia **apenas o que for relevante** pra tarefa atual:
+
+- **[docs/financeiro.md](docs/financeiro.md)** — Cora (mock/real), webhook, comprovantes,
+  arquitetura em camadas (services_cora ↔ services_financeiro ↔ routes_admin), limitações.
+- **[docs/matriculas.md](docs/matriculas.md)** — multi-vínculo aluno↔turma, status derivado,
+  backfill + compat legacy, rotas de vínculos, cascade financeiro.
+- **[docs/licenca.md](docs/licenca.md)** — validação via Painel externo, cache + grace offline,
+  machine_id (postgres vs sqlite), modos bloqueio/log, endpoints whitelistados, telas.
+- **[docs/backup.md](docs/backup.md)** — formato do zip, resolução do path SQLite,
+  sequência de restauração com pre-backup, validação de nome de arquivo.
+- **[docs/relatorios.md](docs/relatorios.md)** — KPIs, gráficos Chart.js, exportação PDF
+  via reportlab, portabilidade SQL (extract vs strftime).
+- **[docs/aniversariantes.md](docs/aniversariantes.md)** — escopos dia/semana/mês,
+  widget no dashboard, critérios de filtragem.
+- **[docs/permissoes.md](docs/permissoes.md)** — RBAC com matriz por papel + snapshot
+  customizado por usuário, catálogo, fluxo de personalização, proteções.
+- **[docs/design-system.md](docs/design-system.md)** — tokens CSS, componentes,
+  sobrescritas obrigatórias do Bootstrap, padrões de UI, ícones.

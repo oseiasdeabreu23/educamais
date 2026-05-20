@@ -28,11 +28,12 @@
     'Administrador'  if current_user.tipo == 'admin'
     else 'Coordenador' if current_user.tipo == 'coordenador'
     else 'Gestor' if current_user.tipo == 'gestor'
+    else 'Secretário(a)' if current_user.tipo == 'secretario'
     else 'Professor' if current_user.tipo == 'professor'
     else 'Aluno'     if current_user.tipo == 'aluno'
     else 'Responsável'
   %}
-  {% set is_admin_like = current_user.tipo in ('admin', 'coordenador', 'gestor') %}
+  {% set is_admin_like = current_user.tipo in ('admin', 'coordenador', 'gestor', 'secretario') %}
 
   <aside class="sidebar" id="sidebar">
     <a class="sidebar-brand" href="#">
@@ -63,7 +64,7 @@
         </div>
         {% endif %}
 
-        {% if pode('aluno.ver') or pode('turma.ver') or pode('disciplina.ver') or pode('professor.ver') or pode('responsavel.ver') %}
+        {% if pode('aluno.ver') or pode('aniversariante.ver') or pode('turma.ver') or pode('disciplina.ver') or pode('professor.ver') or pode('responsavel.ver') %}
         <div class="nav-section">
           <div class="nav-label">Cadastros</div>
           {% if pode('aluno.ver') %}
@@ -72,6 +73,8 @@
             <span class="nav-icon"><i class="bi bi-person-fill"></i></span>
             <span>Alunos</span>
           </a>
+          {% endif %}
+          {% if pode('aniversariante.ver') %}
           <a class="nav-item {% if request.endpoint == 'admin.aniversariantes_view' %}active{% endif %}"
              href="{{ url_for('admin.aniversariantes_view') }}">
             <span class="nav-icon"><i class="bi bi-balloon-fill"></i></span>
@@ -158,29 +161,37 @@
         </div>
         {% endif %}
 
-        {% if current_user.tipo == 'admin' %}
+        {% if pode('usuario.gerenciar') or pode('backup.gerenciar') or pode('aviso.gerenciar') or pode('configuracao.gerenciar') %}
         <div class="nav-section">
           <div class="nav-label">Sistema</div>
+          {% if pode('usuario.gerenciar') %}
           <a class="nav-item {% if request.endpoint == 'admin.usuarios' %}active{% endif %}"
              href="{{ url_for('admin.usuarios') }}">
             <span class="nav-icon"><i class="bi bi-shield-lock-fill"></i></span>
             <span>Usuários</span>
           </a>
+          {% endif %}
+          {% if pode('backup.gerenciar') %}
           <a class="nav-item {% if request.endpoint and request.endpoint.startswith('admin.backup') %}active{% endif %}"
              href="{{ url_for('admin.backup') }}">
             <span class="nav-icon"><i class="bi bi-cloud-arrow-down-fill"></i></span>
             <span>Backup</span>
           </a>
+          {% endif %}
+          {% if pode('aviso.gerenciar') %}
           <a class="nav-item {% if request.endpoint and request.endpoint.startswith('admin.avisos') %}active{% endif %}"
              href="{{ url_for('admin.avisos_lista') }}">
             <span class="nav-icon"><i class="bi bi-megaphone-fill"></i></span>
             <span>Comunicados</span>
           </a>
+          {% endif %}
+          {% if pode('configuracao.gerenciar') %}
           <a class="nav-item {% if request.endpoint == 'admin.configuracoes' %}active{% endif %}"
              href="{{ url_for('admin.configuracoes') }}">
             <span class="nav-icon"><i class="bi bi-gear-fill"></i></span>
             <span>Configurações</span>
           </a>
+          {% endif %}
         </div>
         {% endif %}
 
@@ -310,7 +321,7 @@
         <div class="bell-dropdown" id="bellDropdown" hidden>
           <div class="bell-head">
             <strong>Comunicados</strong>
-            {% if current_user.tipo == 'admin' %}
+            {% if pode('aviso.gerenciar') %}
               <a href="{{ url_for('admin.avisos_lista') }}" class="dim">Gerenciar</a>
             {% endif %}
           </div>

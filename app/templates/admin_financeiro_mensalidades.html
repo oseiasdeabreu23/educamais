@@ -32,7 +32,7 @@
       </form>
     </div>
 
-    {% if pode('mensalidade.gerar') %}
+    {% if pode('mensalidade.gerar_lote') %}
     <div class="card mt-3">
       <div class="card-h">
         <div>
@@ -182,26 +182,30 @@
                 </a>
                 {% endif %}
 
-                {% if ult and ult.status in ['aberto', 'vencido'] and current_user.tipo == 'admin' %}
-                <form method="POST"
-                      action="{{ url_for('admin.financeiro_cobranca_pago', id=ult.id) }}"
-                      style="display:inline">
-                  <button type="submit" class="btn btn-ghost btn-sm"
-                          title="Marcar como pago" style="color:var(--ok)">
-                    <i class="bi bi-check2-circle"></i>
-                  </button>
-                </form>
-                <form method="POST"
-                      action="{{ url_for('admin.financeiro_boleto_cancelar', id=ult.id) }}"
-                      onsubmit="return confirm('Cancelar cobrança?')"
-                      style="display:inline">
-                  <button type="submit" class="btn btn-ghost btn-sm" title="Cancelar cobrança"
-                          style="color:var(--bad)">
-                    <i class="bi bi-x-circle"></i>
-                  </button>
-                </form>
+                {% if ult and ult.status in ['aberto', 'vencido'] %}
+                  {% if pode('boleto.registrar_pagamento') %}
+                  <form method="POST"
+                        action="{{ url_for('admin.financeiro_cobranca_pago', id=ult.id) }}"
+                        style="display:inline">
+                    <button type="submit" class="btn btn-ghost btn-sm"
+                            title="Marcar como pago" style="color:var(--ok)">
+                      <i class="bi bi-check2-circle"></i>
+                    </button>
+                  </form>
+                  {% endif %}
+                  {% if pode('boleto.cancelar') %}
+                  <form method="POST"
+                        action="{{ url_for('admin.financeiro_boleto_cancelar', id=ult.id) }}"
+                        onsubmit="return confirm('Cancelar cobrança?')"
+                        style="display:inline">
+                    <button type="submit" class="btn btn-ghost btn-sm" title="Cancelar cobrança"
+                            style="color:var(--bad)">
+                      <i class="bi bi-x-circle"></i>
+                    </button>
+                  </form>
+                  {% endif %}
                 {% endif %}
-                {% if current_user.tipo == 'admin' %}
+                {% if pode('mensalidade.cancelar') %}
                 <form method="POST"
                       action="{{ url_for('admin.financeiro_mensalidade_excluir', id=m.id) }}"
                       onsubmit="return confirm('Excluir mensalidade {{ m.aluno.nome }} {{ m.mes }}/{{ m.ano }}?')"

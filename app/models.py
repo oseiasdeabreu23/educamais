@@ -9,10 +9,34 @@ class User(db.Model, UserMixin):
     nome = db.Column(db.String(100), nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
     senha = db.Column(db.String(255), nullable=False)
-    tipo = db.Column(db.String(20), nullable=False)  # admin, professor, responsavel
+    tipo = db.Column(db.String(20), nullable=False)  # admin, professor, responsavel, etc.
+    # Quando True, ignora as permissões padrão do papel e usa só as
+    # registradas em UsuarioPermissao (snapshot persistido pelo admin).
+    permissoes_customizadas = db.Column(db.Boolean, default=False, nullable=False,
+                                        server_default='0')
 
     def get_id(self):
         return str(self.id)
+
+
+class UsuarioPermissao(db.Model):
+    """Snapshot de permissões customizadas por usuário.
+
+    Só é consultada quando ``User.permissoes_customizadas == True``.
+    Cada linha = uma permissão concedida (modelo aditivo: ausência = negada).
+    """
+    __tablename__ = 'usuario_permissao'
+    user_id = db.Column(db.Integer,
+                        db.ForeignKey('usuarios.id', ondelete='CASCADE'),
+                        primary_key=True)
+    chave = db.Column(db.String(80), primary_key=True)
+
+    user = db.relationship(
+        'User',
+        backref=db.backref('permissoes_personalizadas',
+                           lazy='dynamic',
+                           cascade='all, delete-orphan')
+    )
 
 
 class Turma(db.Model):

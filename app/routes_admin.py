@@ -24,7 +24,10 @@ from app import (services_backup, services_financeiro, services_mercadopago,
                  services_avisos, services_relatorios, storage)
 from app.services_cora import get_cora_client, CoraError, CoraMockClient
 from app.services_mercadopago import MercadoPagoError
-from app.permissoes import requires, pode, ROLES_CRIAVEIS_ADMIN, ROLES_LABEL
+from app.permissoes import (requires, pode, ROLES_CRIAVEIS_ADMIN, ROLES_LABEL,
+                            ROLES_ADMIN_LIKE, PERMISSOES, PERMISSOES_CATALOGO,
+                            PERMISSOES_TODAS)
+from app import services_permissoes
 from datetime import date, datetime
 from sqlalchemy import or_, and_
 from sqlalchemy.exc import IntegrityError
@@ -82,7 +85,7 @@ def dashboard():
 
 @admin_bp.route('/aniversariantes')
 @login_required
-@requires('aluno.ver')
+@requires('aniversariante.ver')
 def aniversariantes_view():
     escopo = (request.args.get('escopo') or 'dia').lower()
     if escopo not in ESCOPOS_ANIVERSARIO:
@@ -111,7 +114,7 @@ def relatorios():
 
 @admin_bp.route('/relatorios/pdf')
 @login_required
-@requires('relatorio.ver')
+@requires('relatorio.exportar')
 def relatorios_pdf():
     turma_id_raw = request.args.get('turma_id', type=int)
     snapshot = services_relatorios.snapshot_completo(turma_id=turma_id_raw)
@@ -601,7 +604,7 @@ def turma_detalhe(id):
 
 @admin_bp.route('/turmas/editar/<int:id>', methods=['POST'])
 @login_required
-@admin_required
+@requires('turma.editar')
 def editar_turma(id):
     turma = Turma.query.get_or_404(id)
     nome = (request.form.get('nome') or '').strip()
@@ -634,7 +637,7 @@ def turma_encontros_json(id):
 
 @admin_bp.route('/turmas/excluir/<int:id>', methods=['POST'])
 @login_required
-@admin_required
+@requires('turma.excluir')
 def excluir_turma(id):
     turma = Turma.query.get_or_404(id)
     if turma.alunos:
@@ -795,7 +798,7 @@ def responsaveis():
 
 @admin_bp.route('/usuarios', methods=['GET', 'POST'])
 @login_required
-@admin_required
+@requires('usuario.gerenciar')
 def usuarios():
     if request.method == 'POST':
         action = request.form.get('action')
@@ -879,6 +882,66 @@ def usuarios():
                            roles_label=ROLES_LABEL)
 
 
+# ── Permissões customizadas por usuário ────────────────────────────────────────
+
+@admin_bp.route('/usuarios/<int:user_id>/permissoes', methods=['GET', 'POST'])
+@login_required
+@requires('usuario.gerenciar')
+def usuario_permissoes(user_id):
+    user = User.query.get_or_404(user_id)
+
+    # Regras de quem pode ser editado.
+    if user.tipo == 'admin':
+        flash('Admins têm acesso total imutável — não podem ser customizados.', 'warning')
+        return redirect(url_for('admin.usuarios'))
+    if user.tipo not in ROLES_ADMIN_LIKE:
+        flash('Customização de permissões só vale para papéis administrativos '
+              '(coordenador, gestor, secretário).', 'warning')
+        return redirect(url_for('admin.usuarios'))
+    if user.id == current_user.id:
+        flash('Você não pode editar suas próprias permissões.', 'warning')
+        return redirect(url_for('admin.usuarios'))
+
+    if request.method == 'POST':
+        action = request.form.get('action', '').strip()
+        try:
+            if action == 'personalizar':
+                services_permissoes.snapshot_permissoes_papel(user)
+                flash(f'Permissões de {user.nome} agora são personalizadas. '
+                      'Ajuste a matriz abaixo.', 'success')
+
+            elif action == 'salvar':
+                chaves = request.form.getlist('permissoes')
+                aplicadas = services_permissoes.salvar_permissoes_customizadas(user, chaves)
+                flash(f'Permissões salvas: {len(aplicadas)} concedidas.', 'success')
+
+            elif action == 'restaurar':
+                services_permissoes.restaurar_padrao_papel(user)
+                flash(f'Permissões de {user.nome} voltaram ao padrão do papel '
+                      f'({ROLES_LABEL.get(user.tipo, user.tipo)}).', 'success')
+
+            else:
+                flash('Ação desconhecida.', 'danger')
+
+        except services_permissoes.PermissoesError as e:
+            flash(str(e), 'danger')
+
+        return redirect(url_for('admin.usuario_permissoes', user_id=user.id))
+
+    # GET — monta a view.
+    efetivas = services_permissoes.permissoes_efetivas(user)
+    padrao_papel = set(PERMISSOES.get(user.tipo, set()))
+
+    return render_template(
+        'admin_usuario_permissoes.html',
+        usuario=user,
+        catalogo=PERMISSOES_CATALOGO,
+        efetivas=efetivas,
+        padrao_papel=padrao_papel,
+        papel_label=ROLES_LABEL.get(user.tipo, user.tipo),
+    )
+
+
 # ── Cursos ─────────────────────────────────────────────────────────────────────
 
 @admin_bp.route('/cursos', methods=['GET', 'POST'])
@@ -915,13 +978,13 @@ def curso_detalhe(curso_id):
     if request.method == 'POST':
         action = request.form.get('action')
 
-        # Coordenador pode matricular/desmatricular alunos no curso, mas
-        # não pode editar conteúdo do curso (módulos, vídeos, dados).
+        # Coordenador/secretário podem matricular/desmatricular alunos no curso,
+        # mas só quem tem 'curso.editar' pode mexer em módulos, vídeos e dados.
         if action in ('matricular', 'desmatricular'):
-            if not pode(current_user, 'matricula.gerenciar'):
+            if not pode(current_user, 'matricula_curso.gerenciar'):
                 abort(403)
         else:
-            if current_user.tipo != 'admin':
+            if not pode(current_user, 'curso.editar'):
                 abort(403)
 
         if action == 'editar_curso':
@@ -1006,7 +1069,7 @@ def curso_detalhe(curso_id):
 
 @admin_bp.route('/cursos/<int:curso_id>/excluir', methods=['POST'])
 @login_required
-@admin_required
+@requires('curso.excluir')
 def excluir_curso(curso_id):
     curso = Curso.query.get_or_404(curso_id)
     db.session.delete(curso)
@@ -1019,7 +1082,7 @@ def excluir_curso(curso_id):
 
 @admin_bp.route('/configuracoes', methods=['GET', 'POST'])
 @login_required
-@admin_required
+@requires('configuracao.gerenciar')
 def configuracoes():
     cfg = ConfigSistema.query.first()
     if not cfg:
@@ -1084,7 +1147,7 @@ def configuracoes():
 
 @admin_bp.route('/vincular', methods=['POST'])
 @login_required
-@admin_required
+@requires('usuario.gerenciar')
 def vincular_aluno_turma():
     aluno_id = request.form.get('aluno_id')
     turma_id = request.form.get('turma_id')
@@ -1102,7 +1165,7 @@ def vincular_aluno_turma():
 
 @admin_bp.route('/backup')
 @login_required
-@admin_required
+@requires('backup.gerenciar')
 def backup():
     backups = services_backup.listar_backups(current_app)
     return render_template('admin_backup.html', backups=backups)
@@ -1110,7 +1173,7 @@ def backup():
 
 @admin_bp.route('/backup/criar', methods=['POST'])
 @login_required
-@admin_required
+@requires('backup.gerenciar')
 def backup_criar():
     try:
         caminho = services_backup.criar_backup(current_app)
@@ -1122,7 +1185,7 @@ def backup_criar():
 
 @admin_bp.route('/backup/baixar/<nome>')
 @login_required
-@admin_required
+@requires('backup.gerenciar')
 def backup_baixar(nome):
     try:
         caminho = services_backup.caminho_backup(current_app, nome)
@@ -1137,7 +1200,7 @@ def backup_baixar(nome):
 
 @admin_bp.route('/backup/excluir/<nome>', methods=['POST'])
 @login_required
-@admin_required
+@requires('backup.gerenciar')
 def backup_excluir(nome):
     try:
         if services_backup.excluir_backup(current_app, nome):
@@ -1151,7 +1214,7 @@ def backup_excluir(nome):
 
 @admin_bp.route('/backup/restaurar', methods=['POST'])
 @login_required
-@admin_required
+@requires('backup.gerenciar')
 def backup_restaurar():
     arquivo = request.files.get('backup_file')
     confirmacao = request.form.get('confirmacao', '').strip().upper()
@@ -1274,7 +1337,7 @@ def financeiro_mensalidades():
 
 @admin_bp.route('/financeiro/mensalidades/lote', methods=['POST'])
 @login_required
-@requires('mensalidade.gerar')
+@requires('mensalidade.gerar_lote')
 def financeiro_mensalidades_lote():
     mes = int(request.form.get('mes', date.today().month))
     ano = int(request.form.get('ano', date.today().year))
@@ -1291,7 +1354,7 @@ def financeiro_mensalidades_lote():
 
 @admin_bp.route('/financeiro/mensalidades/<int:id>/excluir', methods=['POST'])
 @login_required
-@admin_required
+@requires('mensalidade.cancelar')
 def financeiro_mensalidade_excluir(id):
     m = Mensalidade.query.get_or_404(id)
     mes, ano = m.mes, m.ano
@@ -1321,7 +1384,7 @@ def financeiro_plano(aluno_id):
 
 @admin_bp.route('/financeiro/planos/<int:aluno_id>/criar', methods=['POST'])
 @login_required
-@requires('mensalidade.gerar')
+@requires('mensalidade.gerar_lote')
 def financeiro_plano_criar(aluno_id):
     aluno = Aluno.query.get_or_404(aluno_id)
     try:
@@ -1356,7 +1419,7 @@ def financeiro_plano_criar(aluno_id):
 
 @admin_bp.route('/financeiro/planos/<int:aluno_id>/cancelar', methods=['POST'])
 @login_required
-@admin_required
+@requires('plano_pagamento.cancelar')
 def financeiro_plano_cancelar(aluno_id):
     aluno = Aluno.query.get_or_404(aluno_id)
     motivo = (request.form.get('motivo') or '').strip() or None
@@ -1402,7 +1465,7 @@ def financeiro_boleto_emitir(mensalidade_id):
 
 @admin_bp.route('/financeiro/boletos/<int:id>/cancelar', methods=['POST'])
 @login_required
-@admin_required
+@requires('boleto.cancelar')
 def financeiro_boleto_cancelar(id):
     b = Boleto.query.get_or_404(id)
     if services_financeiro.cancelar_boleto(b):
@@ -1414,7 +1477,7 @@ def financeiro_boleto_cancelar(id):
 
 @admin_bp.route('/financeiro/boletos/sincronizar', methods=['POST'])
 @login_required
-@admin_required
+@requires('boleto.sincronizar')
 def financeiro_boletos_sincronizar():
     res = services_financeiro.sincronizar_status_boletos()
     flash(f"Sincronização: {res['pagos']} pagos, {res['vencidos']} vencidos, "
@@ -1469,7 +1532,7 @@ def financeiro_cobranca_registrar(mensalidade_id):
 
 @admin_bp.route('/financeiro/cobranca/<int:id>/pago', methods=['POST'])
 @login_required
-@admin_required
+@requires('boleto.registrar_pagamento')
 def financeiro_cobranca_pago(id):
     boleto = Boleto.query.get_or_404(id)
     if boleto.status == 'pago':
@@ -1519,7 +1582,7 @@ def financeiro_fluxo_caixa():
 
 @admin_bp.route('/financeiro/movimentacao/nova', methods=['POST'])
 @login_required
-@admin_required
+@requires('movimentacao.criar')
 def financeiro_movimentacao_nova():
     tipo = request.form.get('tipo', 'saida')
     descricao = request.form.get('descricao', '').strip()
@@ -1569,7 +1632,7 @@ def financeiro_movimentacao_nova():
 
 @admin_bp.route('/financeiro/movimentacao/<int:id>/excluir', methods=['POST'])
 @login_required
-@admin_required
+@requires('movimentacao.excluir')
 def financeiro_movimentacao_excluir(id):
     m = Movimentacao.query.get_or_404(id)
     if m.boleto_id:
@@ -1697,7 +1760,7 @@ def financeiro_boletos_export_xlsx():
 
 @admin_bp.route('/financeiro/categorias', methods=['GET', 'POST'])
 @login_required
-@admin_required
+@requires('categoria_despesa.gerenciar')
 def financeiro_categorias():
     if request.method == 'POST':
         nome = (request.form.get('nome') or '').strip()
@@ -1717,7 +1780,7 @@ def financeiro_categorias():
 
 @admin_bp.route('/financeiro/categorias/<int:id>/excluir', methods=['POST'])
 @login_required
-@admin_required
+@requires('categoria_despesa.gerenciar')
 def financeiro_categoria_excluir(id):
     cat = CategoriaDespesa.query.get_or_404(id)
     if cat.movimentacoes:
@@ -1797,7 +1860,7 @@ def financeiro_cora_mock_boleto(cora_id):
 
 @admin_bp.route('/configuracoes/mercadopago', methods=['GET', 'POST'])
 @login_required
-@admin_required
+@requires('configuracao.gerenciar')
 def configuracoes_mercadopago():
     integ = services_mercadopago.get_integracao_mp()
 
@@ -1844,7 +1907,7 @@ def configuracoes_mercadopago():
 
 @admin_bp.route('/configuracoes/mercadopago/testar', methods=['POST'])
 @login_required
-@admin_required
+@requires('configuracao.gerenciar')
 def configuracoes_mercadopago_testar():
     integ = services_mercadopago.get_integracao_mp()
     if not (integ.access_token or '').strip():
@@ -1928,12 +1991,12 @@ def financeiro_mp_webhook():
 # ── Avisos / Comunicados ───────────────────────────────────────────────────────
 
 NIVEIS_AVISO = ('info', 'sucesso', 'aviso', 'urgente')
-PAPEIS_AVISO = ('admin', 'coordenador', 'gestor', 'professor', 'responsavel', 'aluno')
+PAPEIS_AVISO = ('admin', 'coordenador', 'gestor', 'secretario', 'professor', 'responsavel', 'aluno')
 
 
 @admin_bp.route('/avisos', methods=['GET', 'POST'])
 @login_required
-@admin_required
+@requires('aviso.gerenciar')
 def avisos_lista():
     if request.method == 'POST':
         titulo = (request.form.get('titulo') or '').strip()
@@ -2001,7 +2064,7 @@ def avisos_lista():
 
 @admin_bp.route('/avisos/<int:aviso_id>/encerrar', methods=['POST'])
 @login_required
-@admin_required
+@requires('aviso.gerenciar')
 def avisos_encerrar(aviso_id):
     aviso = Aviso.query.get_or_404(aviso_id)
     services_avisos.encerrar_aviso(aviso)
@@ -2011,7 +2074,7 @@ def avisos_encerrar(aviso_id):
 
 @admin_bp.route('/avisos/<int:aviso_id>/excluir', methods=['POST'])
 @login_required
-@admin_required
+@requires('aviso.gerenciar')
 def avisos_excluir(aviso_id):
     aviso = Aviso.query.get_or_404(aviso_id)
     services_avisos.excluir_aviso(aviso)
