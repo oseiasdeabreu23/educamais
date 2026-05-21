@@ -28,7 +28,16 @@ Idempotente: planos/mensalidades já com matricula_turma_id são pulados.
 Uso:
     set PYTHONPATH=.
     venv\\Scripts\\python.exe scripts\\backfill_planos_matricula.py
+    venv\\Scripts\\python.exe scripts\\backfill_planos_matricula.py --auto
+
+Modo --auto: roda sem prompts. Liga matrículas automaticamente quando há só 1
+ativa; planos com ambiguidade (>1 matrícula ativa) ou sem matrícula ativa são
+listados em JSON no fim em vez de perguntar. Sempre commita ao final.
 """
+import argparse
+import json
+import sys
+
 from app import create_app, db
 from app.models import (
     Aluno, MatriculaTurma, Mensalidade, PlanoPagamento, Responsavel,
@@ -60,10 +69,16 @@ def escolher_matricula(aluno, matriculas):
     return matriculas[int(resp) - 1]
 
 
-def backfill_planos():
-    """Retorna dict com contadores e a lista de planos que foram ligados."""
+def backfill_planos(auto=False, ambiguos_acc=None):
+    """Liga planos a matrículas. Em auto=True, casos ambíguos são apenas listados.
+
+    ambiguos_acc: lista mutável onde os casos ambíguos são acumulados
+    (dicts com plano_id, aluno_id, aluno_nome, opcoes=[{matricula_id, turma_nome}]).
+    """
     contadores = {'ligados_auto': 0, 'ligados_manual': 0, 'pulados': 0,
-                  'sem_matricula': 0, 'ja_ok': 0}
+                  'sem_matricula': 0, 'ja_ok': 0, 'ambiguos': 0}
+    if ambiguos_acc is None:
+        ambiguos_acc = []
 
     planos = PlanoPagamento.query.order_by(PlanoPagamento.id).all()
     for p in planos:
@@ -88,26 +103,55 @@ def backfill_planos():
             contadores['ligados_auto'] += 1
 
         elif len(ativas) > 1:
-            m = escolher_matricula(aluno, ativas)
-            if m is None:
-                contadores['pulados'] += 1
+            if auto:
+                ambiguos_acc.append({
+                    'tipo': 'plano_multiplas_ativas',
+                    'plano_id': p.id,
+                    'aluno_id': aluno.id,
+                    'aluno_nome': aluno.nome,
+                    'opcoes': [
+                        {'matricula_id': m.id,
+                         'turma_nome': m.turma.nome if m.turma else '?',
+                         'data_matricula': str(m.data_matricula)}
+                        for m in ativas
+                    ],
+                })
+                contadores['ambiguos'] += 1
             else:
-                p.matricula_turma_id = m.id
-                print(f'  plano #{p.id} -> matrícula #{m.id} [manual]')
-                contadores['ligados_manual'] += 1
+                m = escolher_matricula(aluno, ativas)
+                if m is None:
+                    contadores['pulados'] += 1
+                else:
+                    p.matricula_turma_id = m.id
+                    print(f'  plano #{p.id} -> matrícula #{m.id} [manual]')
+                    contadores['ligados_manual'] += 1
 
         elif historico:
-            mais_recente = historico[0]
-            turma_nome = mais_recente.turma.nome if mais_recente.turma else '?'
-            print(f'\n  plano #{p.id} ({aluno.nome}) — aluno sem matrícula ativa.')
-            print(f'    mais recente: #{mais_recente.id} turma "{turma_nome}" '
-                  f'status={mais_recente.status}')
-            resp = perguntar('  ligar a essa? [s/N/p=pular]: ', {'s', 'n', 'p', ''})
-            if resp == 's':
-                p.matricula_turma_id = mais_recente.id
-                contadores['ligados_manual'] += 1
+            if auto:
+                ambiguos_acc.append({
+                    'tipo': 'plano_sem_ativa',
+                    'plano_id': p.id,
+                    'aluno_id': aluno.id,
+                    'aluno_nome': aluno.nome,
+                    'mais_recente': {
+                        'matricula_id': historico[0].id,
+                        'turma_nome': historico[0].turma.nome if historico[0].turma else '?',
+                        'status': historico[0].status,
+                    },
+                })
+                contadores['ambiguos'] += 1
             else:
-                contadores['pulados'] += 1
+                mais_recente = historico[0]
+                turma_nome = mais_recente.turma.nome if mais_recente.turma else '?'
+                print(f'\n  plano #{p.id} ({aluno.nome}) — aluno sem matrícula ativa.')
+                print(f'    mais recente: #{mais_recente.id} turma "{turma_nome}" '
+                      f'status={mais_recente.status}')
+                resp = perguntar('  ligar a essa? [s/N/p=pular]: ', {'s', 'n', 'p', ''})
+                if resp == 's':
+                    p.matricula_turma_id = mais_recente.id
+                    contadores['ligados_manual'] += 1
+                else:
+                    contadores['pulados'] += 1
 
         else:
             print(f'  plano #{p.id} ({aluno.nome}) — aluno sem matrícula nenhuma '
@@ -203,22 +247,28 @@ def backfill_mensalidade_padrao_matricula():
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--auto', action='store_true',
+                        help='Não-interativo: liga só casos não-ambíguos, '
+                             'imprime ambíguos como JSON e commita.')
+    args = parser.parse_args()
+
     app = create_app()
     with app.app_context():
         print('=' * 70)
-        print('Backfill de planos/mensalidades por matrícula')
+        print(f'Backfill de planos/mensalidades por matrícula (modo={"auto" if args.auto else "interativo"})')
         print('=' * 70)
 
-        # Snapshot inicial pra mostrar no fim
         total_planos = PlanoPagamento.query.count()
         total_mens = Mensalidade.query.count()
         total_mat = MatriculaTurma.query.count()
         print(f'\nTotais atuais: {total_planos} planos · {total_mens} mensalidades · '
               f'{total_mat} matrículas')
 
+        ambiguos = []
         try:
             print('\n[1/4] Ligando planos a matrículas...')
-            c_planos = backfill_planos()
+            c_planos = backfill_planos(auto=args.auto, ambiguos_acc=ambiguos)
             print(f'  resumo: {c_planos}')
 
             print('\n[2/4] Ligando mensalidades a matrículas...')
@@ -234,22 +284,32 @@ def main():
             print(f'  resumo: {c_pad}')
 
             print('\n' + '=' * 70)
-            print('TUDO PRONTO — nada foi commitado ainda.')
-            print('=' * 70)
-            resp = perguntar('\nConfirmar commit? [s/N]: ', {'s', 'n', ''})
-            if resp == 's':
+            if args.auto:
                 db.session.commit()
-                print('\n✅ Commit feito. Backfill aplicado.')
+                print('[OK] Commit feito (modo auto).')
+                if ambiguos:
+                    print(f'\n[!] {len(ambiguos)} caso(s) ambiguo(s) ficaram com '
+                          f'matricula_turma_id=NULL e precisam de decisao manual:')
+                    print('--- AMBIGUOS_JSON_BEGIN ---')
+                    print(json.dumps(ambiguos, ensure_ascii=False, indent=2))
+                    print('--- AMBIGUOS_JSON_END ---')
             else:
-                db.session.rollback()
-                print('\n❌ Rollback. Nada foi alterado no banco.')
+                print('TUDO PRONTO -- nada foi commitado ainda.')
+                print('=' * 70)
+                resp = perguntar('\nConfirmar commit? [s/N]: ', {'s', 'n', ''})
+                if resp == 's':
+                    db.session.commit()
+                    print('\n[OK] Commit feito. Backfill aplicado.')
+                else:
+                    db.session.rollback()
+                    print('\n[X] Rollback. Nada foi alterado no banco.')
 
         except KeyboardInterrupt:
             db.session.rollback()
-            print('\n\n⚠ Interrompido. Rollback executado.')
+            print('\n\n[!] Interrompido. Rollback executado.')
         except Exception as e:
             db.session.rollback()
-            print(f'\n\n💥 Erro: {e!r}. Rollback executado.')
+            print(f'\n\n[ERRO] {e!r}. Rollback executado.')
             raise
 
 
