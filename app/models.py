@@ -371,6 +371,7 @@ class MatriculaTurma(db.Model):
     data_matricula = db.Column(db.Date, nullable=False, default=date.today)
     data_saida = db.Column(db.Date, nullable=True)
     observacao = db.Column(db.Text, nullable=True)
+    mensalidade_padrao = db.Column(db.Numeric(10, 2), nullable=True)
 
     # lazy='select' (default) em vez de 'dynamic' pra permitir eager-load
     # via joinedload/selectinload nas rotas que listam muitos alunos
@@ -405,6 +406,8 @@ class Mensalidade(db.Model):
     aluno_id = db.Column(db.Integer, db.ForeignKey('alunos.id'), nullable=False)
     responsavel_id = db.Column(db.Integer, db.ForeignKey('responsaveis.id'), nullable=True)
     plano_id = db.Column(db.Integer, db.ForeignKey('planos_pagamento.id'), nullable=True)
+    matricula_turma_id = db.Column(db.Integer,
+        db.ForeignKey('matriculas_turma.id'), nullable=True, index=True)
     mes = db.Column(db.Integer, nullable=False)
     ano = db.Column(db.Integer, nullable=False)
     valor = db.Column(db.Numeric(10, 2), nullable=False)
@@ -414,10 +417,16 @@ class Mensalidade(db.Model):
     criada_em = db.Column(db.DateTime, default=datetime.utcnow)
 
     responsavel = db.relationship('Responsavel', backref='mensalidades', lazy=True)
+    matricula = db.relationship('MatriculaTurma',
+        backref=db.backref('mensalidades', lazy=True))
     boletos = db.relationship('Boleto', backref='mensalidade', lazy=True,
                               cascade='all, delete-orphan')
     __table_args__ = (
-        db.UniqueConstraint('aluno_id', 'mes', 'ano', name='uq_mensalidade_aluno_mes_ano'),
+        # Unicidade por matrícula (não mais por aluno). NULL em matricula_turma_id
+        # é considerado distinto pelo SQLite — mensalidades legacy não migradas
+        # convivem sem conflito.
+        db.UniqueConstraint('matricula_turma_id', 'mes', 'ano',
+                            name='uq_mensalidade_matricula_mes_ano'),
     )
 
 
@@ -425,6 +434,10 @@ class PlanoPagamento(db.Model):
     __tablename__ = 'planos_pagamento'
     id = db.Column(db.Integer, primary_key=True)
     aluno_id = db.Column(db.Integer, db.ForeignKey('alunos.id'), nullable=False)
+    matricula_turma_id = db.Column(db.Integer,
+        db.ForeignKey('matriculas_turma.id'), nullable=True, index=True)
+    responsavel_id = db.Column(db.Integer,
+        db.ForeignKey('responsaveis.id'), nullable=True)
     n_parcelas = db.Column(db.Integer, nullable=False)
     valor_parcela = db.Column(db.Numeric(10, 2), nullable=False)
     dia_vencimento = db.Column(db.Integer, nullable=False, default=10)
@@ -436,6 +449,10 @@ class PlanoPagamento(db.Model):
     cancelado_em = db.Column(db.DateTime, nullable=True)
 
     aluno = db.relationship('Aluno', backref=db.backref('planos_pagamento', lazy=True))
+    matricula = db.relationship('MatriculaTurma',
+        backref=db.backref('planos_pagamento', lazy=True))
+    responsavel = db.relationship('Responsavel',
+        backref=db.backref('planos_pagamento', lazy=True))
     mensalidades = db.relationship('Mensalidade', backref='plano', lazy=True)
 
 

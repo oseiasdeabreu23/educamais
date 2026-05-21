@@ -12,8 +12,8 @@ from sqlalchemy import and_, func
 
 from app import db
 from app.models import (
-    Aluno, Boleto, CategoriaDespesa, Mensalidade, Movimentacao, Responsavel,
-    PlanoPagamento,
+    Aluno, Boleto, CategoriaDespesa, MatriculaTurma, Mensalidade, Movimentacao,
+    Responsavel, PlanoPagamento,
 )
 from app.services_cora import CoraError, get_cora_client
 
@@ -54,16 +54,20 @@ def _vencimento_padrao(mes, ano):
 
 
 def gerar_mensalidades_lote(mes, ano, valor_default=None, vencimento=None):
-    """Gera ``Mensalidade`` pra cada aluno ativo que ainda não tenha uma do mês.
+    """Gera ``Mensalidade`` pra cada matrícula ativa que ainda não tenha uma do mês.
+
+    Itera matrículas (não alunos) — aluno com N turmas ativas gera N mensalidades.
+    Valor por matrícula segue a ordem: ``matricula.mensalidade_padrao`` ->
+    ``aluno.mensalidade_padrao`` -> ``valor_default``.
 
     Args:
         mes, ano: período da mensalidade.
-        valor_default: usado quando aluno não tem ``mensalidade_padrao``.
-            Se nem um nem outro existir, o aluno é pulado.
+        valor_default: fallback final quando matrícula e aluno não têm valor.
         vencimento: ``date`` opcional. Se omitido, usa dia ``VENCIMENTO_DIA_PADRAO`` do mês.
 
     Returns:
-        dict ``{criadas: int, puladas: int, alunos_sem_valor: list[str], alunos_sem_responsavel: list[str]}``.
+        dict ``{criadas, puladas, alunos_sem_valor, alunos_sem_responsavel}``.
+        As listas usam ``"<aluno> (<turma>)"`` pra identificar a matrícula.
     """
     venc = vencimento or _vencimento_padrao(mes, ano)
     valor_default_dec = Decimal(str(valor_default)) if valor_default is not None else None
@@ -73,34 +77,45 @@ def gerar_mensalidades_lote(mes, ano, valor_default=None, vencimento=None):
     sem_valor = []
     sem_resp = []
 
-    # Aluno entra no lote se está "ativo" (tem matrícula ativa, ou — fallback
-    # legacy — Aluno.status='ativo' e tem turma_id setado). Alunos formados
-    # ou evadidos são pulados automaticamente.
-    from app.services import _alunos_filtro_status
-    alunos = _alunos_filtro_status(Aluno.query).all()
+    matriculas = MatriculaTurma.query.filter_by(status='ativo').all()
 
-    for aluno in alunos:
+    for matricula in matriculas:
+        aluno = matricula.aluno
+        if aluno is None:
+            continue
+        rotulo = f'{aluno.nome} ({matricula.turma.nome if matricula.turma else "?"})'
+
         ja_existe = Mensalidade.query.filter_by(
-            aluno_id=aluno.id, mes=mes, ano=ano
+            matricula_turma_id=matricula.id, mes=mes, ano=ano
         ).first()
         if ja_existe:
             puladas += 1
             continue
 
-        # Responsável é obrigatório só para menores
+        # Responsável obrigatório só pra menor de idade
         if aluno.idade is not None and aluno.idade < 18 and not aluno.responsaveis:
-            sem_resp.append(aluno.nome)
+            sem_resp.append(rotulo)
             continue
-        responsavel = aluno.responsaveis[0] if aluno.responsaveis else None
 
-        valor = aluno.mensalidade_padrao or valor_default_dec
+        # Responsável: plano ativo da matrícula > aluno.responsaveis[0]
+        plano = plano_ativo_da_matricula(matricula)
+        if plano and plano.responsavel_id:
+            responsavel_id = plano.responsavel_id
+        elif aluno.responsaveis:
+            responsavel_id = aluno.responsaveis[0].id
+        else:
+            responsavel_id = None
+
+        # Valor: matrícula > aluno > default
+        valor = matricula.mensalidade_padrao or aluno.mensalidade_padrao or valor_default_dec
         if valor is None:
-            sem_valor.append(aluno.nome)
+            sem_valor.append(rotulo)
             continue
 
         m = Mensalidade(
             aluno_id=aluno.id,
-            responsavel_id=responsavel.id if responsavel else None,
+            responsavel_id=responsavel_id,
+            matricula_turma_id=matricula.id,
             mes=mes,
             ano=ano,
             valor=Decimal(str(valor)),
@@ -574,41 +589,71 @@ def _avancar_mes(mes, ano):
     return (1, ano + 1) if mes == 12 else (mes + 1, ano)
 
 
-def plano_ativo_do_aluno(aluno):
+def plano_ativo_da_matricula(matricula):
+    """Plano ativo de uma matrícula específica (ou None)."""
     return PlanoPagamento.query.filter_by(
-        aluno_id=aluno.id, status='ativo'
+        matricula_turma_id=matricula.id, status='ativo'
     ).order_by(PlanoPagamento.criado_em.desc()).first()
 
 
-def criar_plano_pagamento(aluno, n_parcelas, valor_parcela, dia_vencimento=10,
-                          mes_inicio=None, ano_inicio=None, observacao=None):
-    """Cria um plano de pagamento para o aluno e gera N mensalidades.
+def planos_ativos_do_aluno(aluno):
+    """Lista de planos ativos do aluno — um por matrícula ativa que tenha plano."""
+    return PlanoPagamento.query.filter(
+        PlanoPagamento.aluno_id == aluno.id,
+        PlanoPagamento.status == 'ativo',
+    ).order_by(PlanoPagamento.criado_em.asc()).all()
+
+
+def plano_ativo_do_aluno(aluno):
+    """Compat: primeiro plano ativo do aluno (qualquer matrícula).
+
+    Mantida pra código legado. Código novo deve usar
+    :func:`plano_ativo_da_matricula` ou :func:`planos_ativos_do_aluno`.
+    """
+    planos = planos_ativos_do_aluno(aluno)
+    return planos[0] if planos else None
+
+
+def criar_plano_pagamento(matricula, n_parcelas, valor_parcela, dia_vencimento=10,
+                          mes_inicio=None, ano_inicio=None, observacao=None,
+                          responsavel_id=None):
+    """Cria um plano de pagamento para uma matrícula e gera N mensalidades.
 
     Estratégia híbrida: registra as ``n_parcelas`` mensalidades de uma vez,
     mas só **emite** o boleto da primeira (e somente se vencer em ≤ 30 dias).
     As próximas ficam aguardando emissão (manual ou via scheduler futuro).
 
     Args:
-        aluno: instância de :class:`Aluno`.
+        matricula: instância de :class:`MatriculaTurma` (precisa estar ``ativo``).
         n_parcelas: número de mensalidades.
         valor_parcela: valor de cada parcela (Decimal/str/float aceitos).
         dia_vencimento: dia do mês (1-28). Cai pra último dia se mês mais curto.
         mes_inicio, ano_inicio: período da primeira parcela. Default: mês atual
             se hoje + 5 dias <= dia do vencimento; senão, próximo mês.
         observacao: texto livre opcional.
+        responsavel_id: pagador deste plano. Default: ``aluno.responsaveis[0]``.
 
     Returns:
         dict ``{plano, mensalidades_criadas: int, boleto_emitido: Boleto|None,
                  mensalidades_puladas: list[(mes, ano)]}``.
 
     Raises:
-        ValueError: se aluno não tiver responsável ou já tiver plano ativo.
+        ValueError: matrícula não-ativa, menor sem responsável, plano já existe
+            na matrícula, parcelas/dia inválidos ou valor não-positivo.
     """
-    # Responsável é obrigatório só para menores de 18.
+    if matricula.status != 'ativo':
+        raise ValueError(
+            f'Matrícula está com status "{matricula.status}" — só matrícula '
+            f'ativa pode receber plano.'
+        )
+    aluno = matricula.aluno
     if (aluno.idade is not None and aluno.idade < 18 and not aluno.responsaveis):
         raise ValueError('Aluno menor de idade precisa de responsável vinculado.')
-    if plano_ativo_do_aluno(aluno):
-        raise ValueError('Aluno já tem plano de pagamento ativo. Cancele ou renegocie.')
+    if plano_ativo_da_matricula(matricula):
+        raise ValueError(
+            f'Matrícula em "{matricula.turma.nome}" já tem plano ativo. '
+            f'Cancele ou renegocie.'
+        )
     if n_parcelas < 1 or n_parcelas > 60:
         raise ValueError('Número de parcelas deve estar entre 1 e 60.')
     if not 1 <= dia_vencimento <= 28:
@@ -618,10 +663,20 @@ def criar_plano_pagamento(aluno, n_parcelas, valor_parcela, dia_vencimento=10,
     if valor <= 0:
         raise ValueError('Valor da parcela deve ser positivo.')
 
+    # Responsável: parâmetro explícito > primeiro do aluno > None (adulto)
+    if responsavel_id is not None:
+        # valida que pertence ao aluno
+        responsavel = next((r for r in aluno.responsaveis
+                            if r.id == int(responsavel_id)), None)
+        if not responsavel:
+            raise ValueError(
+                'Responsável escolhido não está vinculado a este aluno.'
+            )
+    else:
+        responsavel = aluno.responsaveis[0] if aluno.responsaveis else None
+
     hoje = date.today()
     if mes_inicio is None or ano_inicio is None:
-        # Se ainda dá pra cobrar este mês com >=5 dias de antecedência, começa este mês.
-        # Senão, próximo.
         candidata_este_mes = _calcular_data_primeira(dia_vencimento, hoje.month, hoje.year)
         if (candidata_este_mes - hoje).days >= 5:
             mes_inicio, ano_inicio = hoje.month, hoje.year
@@ -629,10 +684,11 @@ def criar_plano_pagamento(aluno, n_parcelas, valor_parcela, dia_vencimento=10,
             mes_inicio, ano_inicio = _avancar_mes(hoje.month, hoje.year)
 
     data_primeira = _calcular_data_primeira(dia_vencimento, mes_inicio, ano_inicio)
-    responsavel = aluno.responsaveis[0] if aluno.responsaveis else None
 
     plano = PlanoPagamento(
         aluno_id=aluno.id,
+        matricula_turma_id=matricula.id,
+        responsavel_id=responsavel.id if responsavel else None,
         n_parcelas=n_parcelas,
         valor_parcela=valor,
         dia_vencimento=dia_vencimento,
@@ -648,7 +704,7 @@ def criar_plano_pagamento(aluno, n_parcelas, valor_parcela, dia_vencimento=10,
     puladas = []
     for _ in range(n_parcelas):
         existe = Mensalidade.query.filter_by(
-            aluno_id=aluno.id, mes=mes, ano=ano
+            matricula_turma_id=matricula.id, mes=mes, ano=ano
         ).first()
         if existe:
             puladas.append((mes, ano))
@@ -657,6 +713,7 @@ def criar_plano_pagamento(aluno, n_parcelas, valor_parcela, dia_vencimento=10,
             m = Mensalidade(
                 aluno_id=aluno.id,
                 responsavel_id=responsavel.id if responsavel else None,
+                matricula_turma_id=matricula.id,
                 plano_id=plano.id,
                 mes=mes, ano=ano,
                 valor=valor,
@@ -668,7 +725,6 @@ def criar_plano_pagamento(aluno, n_parcelas, valor_parcela, dia_vencimento=10,
 
     db.session.flush()
 
-    # Emite só o boleto da primeira mensalidade nova, se vencer em ≤ 30 dias
     boleto_emitido = None
     if criadas:
         primeira = criadas[0]
@@ -676,7 +732,6 @@ def criar_plano_pagamento(aluno, n_parcelas, valor_parcela, dia_vencimento=10,
             try:
                 boleto_emitido = emitir_boleto(primeira)
             except CoraError:
-                # Plano e mensalidades ficam — só o boleto falhou. Admin pode reemitir depois.
                 pass
 
     db.session.commit()
@@ -688,17 +743,16 @@ def criar_plano_pagamento(aluno, n_parcelas, valor_parcela, dia_vencimento=10,
     }
 
 
-def cancelar_plano_aluno(aluno, motivo=None):
-    """Cancela o plano ativo do aluno + mensalidades futuras + boletos abertos.
+def cancelar_plano_matricula(matricula, motivo=None):
+    """Cancela o plano ativo de uma matrícula + mensalidades futuras + boletos abertos.
 
-    Não toca em mensalidades pagas ou já vencidas que tenham sido pagas.
-    Idempotente: se aluno não tem plano ativo, retorna contadores zerados.
+    Não toca em mensalidades pagas. Idempotente: se a matrícula não tem plano
+    ativo, retorna contadores zerados sem erro.
 
     Returns:
-        dict ``{plano_cancelado: bool, mensalidades_canceladas: int,
-                 boletos_cancelados: int, erros_cora: int}``.
+        dict ``{plano_cancelado, mensalidades_canceladas, boletos_cancelados, erros_cora}``.
     """
-    plano = plano_ativo_do_aluno(aluno)
+    plano = plano_ativo_da_matricula(matricula)
     resultado = {
         'plano_cancelado': False,
         'mensalidades_canceladas': 0,
@@ -708,12 +762,9 @@ def cancelar_plano_aluno(aluno, motivo=None):
     if not plano:
         return resultado
 
-    hoje = date.today()
     for m in plano.mensalidades:
-        # Já cancelada anteriormente
         if m.cancelada_em:
             continue
-        # Tem boleto aberto/vencido? cancela no Cora
         for b in m.boletos:
             if b.status in ('aberto', 'vencido'):
                 try:
@@ -723,7 +774,6 @@ def cancelar_plano_aluno(aluno, motivo=None):
                         resultado['erros_cora'] += 1
                 except CoraError:
                     resultado['erros_cora'] += 1
-        # Marca mensalidade como cancelada se ainda não tem boleto pago
         tem_pago = any(b.status == 'pago' for b in m.boletos)
         if not tem_pago:
             m.cancelada_em = datetime.utcnow()
@@ -737,6 +787,80 @@ def cancelar_plano_aluno(aluno, motivo=None):
 
     db.session.commit()
     return resultado
+
+
+def cancelar_plano_aluno(aluno, motivo=None):
+    """Cancela TODOS os planos ativos do aluno (todas as matrículas).
+
+    Usado quando o aluno como um todo é desligado (status legacy ``evadido``).
+    Para cancelar apenas o plano de uma matrícula específica, use
+    :func:`cancelar_plano_matricula`.
+
+    Returns:
+        dict agregado ``{plano_cancelado: bool, planos_cancelados: int,
+                          mensalidades_canceladas, boletos_cancelados, erros_cora}``.
+        ``plano_cancelado`` é True se pelo menos 1 plano foi cancelado (compat).
+    """
+    agregado = {
+        'plano_cancelado': False,
+        'planos_cancelados': 0,
+        'mensalidades_canceladas': 0,
+        'boletos_cancelados': 0,
+        'erros_cora': 0,
+    }
+    matriculas_com_plano = (
+        MatriculaTurma.query
+        .join(PlanoPagamento,
+              PlanoPagamento.matricula_turma_id == MatriculaTurma.id)
+        .filter(
+            MatriculaTurma.aluno_id == aluno.id,
+            PlanoPagamento.status == 'ativo',
+        )
+        .distinct()
+        .all()
+    )
+    for matricula in matriculas_com_plano:
+        res = cancelar_plano_matricula(matricula, motivo=motivo)
+        if res['plano_cancelado']:
+            agregado['planos_cancelados'] += 1
+            agregado['plano_cancelado'] = True
+        agregado['mensalidades_canceladas'] += res['mensalidades_canceladas']
+        agregado['boletos_cancelados'] += res['boletos_cancelados']
+        agregado['erros_cora'] += res['erros_cora']
+
+    # Fallback: planos legacy ligados via aluno_id sem matricula_turma_id
+    # (caso o backfill não tenha rodado ou rodado parcialmente).
+    legacy = PlanoPagamento.query.filter(
+        PlanoPagamento.aluno_id == aluno.id,
+        PlanoPagamento.status == 'ativo',
+        PlanoPagamento.matricula_turma_id.is_(None),
+    ).all()
+    for plano in legacy:
+        for m in plano.mensalidades:
+            if m.cancelada_em:
+                continue
+            for b in m.boletos:
+                if b.status in ('aberto', 'vencido'):
+                    try:
+                        if cancelar_boleto(b):
+                            agregado['boletos_cancelados'] += 1
+                        else:
+                            agregado['erros_cora'] += 1
+                    except CoraError:
+                        agregado['erros_cora'] += 1
+            if not any(b.status == 'pago' for b in m.boletos):
+                m.cancelada_em = datetime.utcnow()
+                agregado['mensalidades_canceladas'] += 1
+        plano.status = 'cancelado'
+        plano.cancelado_em = datetime.utcnow()
+        if motivo:
+            plano.observacao = (plano.observacao or '') + f'\n[cancelado] {motivo}'
+        agregado['planos_cancelados'] += 1
+        agregado['plano_cancelado'] = True
+    if legacy:
+        db.session.commit()
+
+    return agregado
 
 
 # --------------------------------------------------------------------------- #

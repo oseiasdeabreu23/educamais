@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% block page_title %}Plano de pagamento{% endblock %}
+{% block page_title %}Planos de pagamento{% endblock %}
 {% block page_subtitle %}<div class="topbar-sub">{{ aluno.nome }}</div>{% endblock %}
 {% block content %}
 
@@ -7,23 +7,44 @@
   <ol class="breadcrumb">
     <li class="breadcrumb-item"><a href="{{ url_for('admin.alunos') }}">Alunos</a></li>
     <li class="breadcrumb-item"><a href="{{ url_for('admin.financeiro') }}">Financeiro</a></li>
-    <li class="breadcrumb-item active">Plano · {{ aluno.nome }}</li>
+    <li class="breadcrumb-item active">Planos · {{ aluno.nome }}</li>
   </ol>
 </nav>
 
 <div class="row g-3">
 
-  {# ── Plano ativo ── #}
+  {# ── Planos por matrícula ── #}
   <div class="col-lg-7">
-    {% if plano_ativo %}
+
+    {% if not matriculas_com_plano %}
     <div class="card">
       <div class="card-h">
         <div>
-          <div class="card-title">Plano ativo</div>
+          <div class="card-title">Sem matrícula ativa</div>
+          <div class="card-sub">
+            Aluno não tem nenhuma matrícula ativa em turma.
+            <a href="{{ url_for('admin.aluno_vinculos', id=aluno.id) }}">Gerenciar vínculos</a>
+          </div>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+    {% for matricula, plano_ativo in matriculas_com_plano %}
+    <div class="card" style="margin-bottom:16px">
+
+      {% if plano_ativo %}
+      {# ─── Tem plano ativo nesta matrícula ─── #}
+      <div class="card-h">
+        <div>
+          <div class="card-title">{{ matricula.turma.nome }}</div>
           <div class="card-sub">
             {{ plano_ativo.n_parcelas }} parcelas de
             R$ {{ '%.2f' % plano_ativo.valor_parcela }} ·
             vencimento dia {{ plano_ativo.dia_vencimento }}
+            {% if plano_ativo.responsavel %}
+            · pagador: {{ plano_ativo.responsavel.nome }}
+            {% endif %}
           </div>
         </div>
         <span class="badge badge-ok">Ativo</span>
@@ -93,8 +114,9 @@
       </table>
 
       {% if pode('plano_pagamento.cancelar') %}
-      <form method="POST" action="{{ url_for('admin.financeiro_plano_cancelar', aluno_id=aluno.id) }}"
-            onsubmit="return confirm('Cancelar plano? Boletos abertos serão cancelados no Cora.')"
+      <form method="POST"
+            action="{{ url_for('admin.financeiro_plano_cancelar', matricula_id=matricula.id) }}"
+            onsubmit="return confirm('Cancelar plano de {{ matricula.turma.nome }}? Boletos abertos serão cancelados no Cora.')"
             style="margin-top:16px">
         <input class="input" name="motivo" placeholder="Motivo do cancelamento (opcional)" style="margin-bottom:8px">
         <button class="btn" style="background:var(--bad); color:white">
@@ -102,13 +124,13 @@
         </button>
       </form>
       {% endif %}
-    </div>
-    {% else %}
-    <div class="card">
+
+      {% else %}
+      {# ─── Sem plano ativo nesta matrícula ─── #}
       <div class="card-h">
         <div>
-          <div class="card-title">Sem plano ativo</div>
-          <div class="card-sub">Crie um plano para gerar as mensalidades automaticamente</div>
+          <div class="card-title">{{ matricula.turma.nome }}</div>
+          <div class="card-sub">Sem plano — crie para gerar as mensalidades</div>
         </div>
         <span class="qa-icon"><i class="bi bi-cash-coin"></i></span>
       </div>
@@ -126,7 +148,9 @@
         Aluno maior de idade ({{ aluno.idade }} anos) — o próprio aluno será o pagador no boleto.
       </div>
       {% endif %}
-      <form method="POST" action="{{ url_for('admin.financeiro_plano_criar', aluno_id=aluno.id) }}" class="stack-md">
+      <form method="POST"
+            action="{{ url_for('admin.financeiro_plano_criar', matricula_id=matricula.id) }}"
+            class="stack-md">
         <div class="row g-2">
           <div class="col-md-6">
             <label class="label">Número de parcelas</label>
@@ -138,9 +162,22 @@
           </div>
           <div class="col-md-6">
             <label class="label">Valor da parcela (R$)</label>
+            {% set valor_sugerido = matricula.mensalidade_padrao if matricula.mensalidade_padrao is not none else aluno.mensalidade_padrao %}
             <input class="input" name="valor_parcela" type="text" placeholder="0,00"
-                   value="{{ aluno.mensalidade_padrao if aluno.mensalidade_padrao is not none else '' }}" required>
+                   value="{{ valor_sugerido if valor_sugerido is not none else '' }}" required>
           </div>
+          {% if aluno.responsaveis %}
+          <div class="col-12">
+            <label class="label">Responsável pagador</label>
+            <select class="select" name="responsavel_id">
+              {% for r in aluno.responsaveis %}
+              <option value="{{ r.id }}" {% if loop.first %}selected{% endif %}>
+                {{ r.nome }}{% if r.parentesco %} ({{ r.parentesco }}){% endif %}
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+          {% endif %}
           <div class="col-md-4">
             <label class="label">Dia do vencimento</label>
             <input class="input" name="dia_vencimento" type="number" min="1" max="28" value="10">
@@ -158,7 +195,6 @@
             <label class="label">Ano de início</label>
             <select class="select" name="ano_inicio">
               <option value="">Automático</option>
-              {% set ano_atual = aluno.data_nascimento.year if false else 2026 %}
               {% for y in [2026, 2027, 2028] %}
               <option value="{{ y }}">{{ y }}</option>
               {% endfor %}
@@ -175,12 +211,15 @@
           Vencimento que cair em sábado/domingo é empurrado pra próxima segunda.
         </div>
         <button type="submit" class="btn btn-primary w-100" style="margin-top:8px">
-          <i class="bi bi-check-lg"></i> Criar plano
+          <i class="bi bi-check-lg"></i> Criar plano para {{ matricula.turma.nome }}
         </button>
       </form>
       {% endif %}
+
+      {% endif %}
     </div>
-    {% endif %}
+    {% endfor %}
+
   </div>
 
   {# ── Histórico ── #}
@@ -189,7 +228,7 @@
       <div class="card-h">
         <div>
           <div class="card-title">Histórico</div>
-          <div class="card-sub">Planos anteriores</div>
+          <div class="card-sub">Planos anteriores (todas as turmas)</div>
         </div>
       </div>
       {% if historico %}
@@ -199,6 +238,9 @@
           <div>
             <div class="fw-600">
               {{ p.n_parcelas }}x R$ {{ '%.2f' % p.valor_parcela }}
+              {% if p.matricula and p.matricula.turma %}
+              · <span class="dim">{{ p.matricula.turma.nome }}</span>
+              {% endif %}
             </div>
             <div class="dim" style="font-size:11.5px">
               {{ p.criado_em.strftime('%d/%m/%Y') if p.criado_em else '—' }}

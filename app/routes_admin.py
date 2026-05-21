@@ -486,28 +486,30 @@ def aluno_vinculos(id):
                 }[action]
                 fn(matricula, data_saida=data_saida, observacao=observacao)
 
+                # Cancela o plano DESTA matrícula quando ela evadir.
+                # Outros planos do aluno (de outras turmas ativas) continuam.
+                if action == 'evadir':
+                    try:
+                        res = services_financeiro.cancelar_plano_matricula(
+                            matricula,
+                            motivo=f'Matrícula em {matricula.turma.nome} evadida.'
+                        )
+                        if res.get('plano_cancelado'):
+                            flash(
+                                f"Plano da matrícula cancelado: "
+                                f"{res['mensalidades_canceladas']} mensalidade(s), "
+                                f"{res['boletos_cancelados']} boleto(s).",
+                                'info'
+                            )
+                    except Exception:
+                        db.session.rollback()
+                        current_app.logger.exception(
+                            'Falha ao cancelar plano da matrícula #%s', matricula.id)
+
                 # Se o aluno ficou sem nenhuma matrícula ativa, sincroniza
-                # Aluno.turma_id (legacy) e dispara cascade financeiro só
-                # quando evadiu — alinhado à regra antiga.
+                # Aluno.turma_id (legacy) pra manter compat com filtros antigos.
                 if not aluno.vinculos_ativos:
                     aluno.turma_id = None
-                    if action == 'evadir':
-                        try:
-                            res = services_financeiro.cancelar_plano_aluno(
-                                aluno,
-                                motivo=f'Aluno evadiu em {matricula.turma.nome}.'
-                            )
-                            if res.get('plano_cancelado'):
-                                flash(
-                                    f"Plano cancelado automaticamente: "
-                                    f"{res['mensalidades_canceladas']} mensalidade(s), "
-                                    f"{res['boletos_cancelados']} boleto(s).",
-                                    'info'
-                                )
-                        except Exception:
-                            db.session.rollback()
-                            current_app.logger.exception(
-                                'Falha ao cancelar plano de %s', aluno.nome)
 
                 db.session.commit()
                 labels = {'formar': 'formado', 'evadir': 'evadido',
@@ -1370,23 +1372,36 @@ def financeiro_mensalidade_excluir(id):
 @login_required
 @requires('financeiro.ver')
 def financeiro_plano(aluno_id):
+    """Lista todas as matrículas ativas do aluno com seus planos (1 por matrícula).
+
+    Histórico inclui planos cancelados/concluídos de qualquer matrícula do aluno.
+    """
     aluno = Aluno.query.get_or_404(aluno_id)
-    plano_ativo = services_financeiro.plano_ativo_do_aluno(aluno)
+    matriculas_ativas = aluno.vinculos_ativos
+    # (matricula, plano_ativo_ou_None) pra cada matrícula ativa
+    matriculas_com_plano = [
+        (m, services_financeiro.plano_ativo_da_matricula(m))
+        for m in matriculas_ativas
+    ]
     historico = (PlanoPagamento.query
                  .filter_by(aluno_id=aluno.id)
                  .order_by(PlanoPagamento.criado_em.desc()).all())
     return render_template(
         'admin_financeiro_plano.html',
-        aluno=aluno, plano_ativo=plano_ativo, historico=historico,
+        aluno=aluno,
+        matriculas_com_plano=matriculas_com_plano,
+        historico=historico,
         meses=MESES_PT,
     )
 
 
-@admin_bp.route('/financeiro/planos/<int:aluno_id>/criar', methods=['POST'])
+@admin_bp.route('/financeiro/planos/matricula/<int:matricula_id>/criar',
+                methods=['POST'])
 @login_required
 @requires('mensalidade.gerar_lote')
-def financeiro_plano_criar(aluno_id):
-    aluno = Aluno.query.get_or_404(aluno_id)
+def financeiro_plano_criar(matricula_id):
+    matricula = MatriculaTurma.query.get_or_404(matricula_id)
+    aluno = matricula.aluno
     try:
         n = int(request.form.get('n_parcelas', 12))
         valor = _parse_decimal(request.form.get('valor_parcela'))
@@ -1398,13 +1413,17 @@ def financeiro_plano_criar(aluno_id):
         mes_ini = int(mes_ini) if mes_ini else None
         ano_ini = int(ano_ini) if ano_ini else None
         observacao = (request.form.get('observacao') or '').strip() or None
+        responsavel_id = request.form.get('responsavel_id')
+        responsavel_id = int(responsavel_id) if responsavel_id else None
 
         res = services_financeiro.criar_plano_pagamento(
-            aluno=aluno, n_parcelas=n, valor_parcela=valor,
+            matricula=matricula, n_parcelas=n, valor_parcela=valor,
             dia_vencimento=dia, mes_inicio=mes_ini, ano_inicio=ano_ini,
-            observacao=observacao,
+            observacao=observacao, responsavel_id=responsavel_id,
         )
-        msg = (f"Plano criado: {res['mensalidades_criadas']} mensalidade(s).")
+        turma_nome = matricula.turma.nome if matricula.turma else '?'
+        msg = (f"Plano criado para {turma_nome}: "
+               f"{res['mensalidades_criadas']} mensalidade(s).")
         if res['boleto_emitido']:
             msg += f" Boleto da 1ª parcela emitido (#{res['boleto_emitido'].id})."
         if res['mensalidades_puladas']:
@@ -1417,17 +1436,21 @@ def financeiro_plano_criar(aluno_id):
     return redirect(url_for('admin.financeiro_plano', aluno_id=aluno.id))
 
 
-@admin_bp.route('/financeiro/planos/<int:aluno_id>/cancelar', methods=['POST'])
+@admin_bp.route('/financeiro/planos/matricula/<int:matricula_id>/cancelar',
+                methods=['POST'])
 @login_required
 @requires('plano_pagamento.cancelar')
-def financeiro_plano_cancelar(aluno_id):
-    aluno = Aluno.query.get_or_404(aluno_id)
+def financeiro_plano_cancelar(matricula_id):
+    matricula = MatriculaTurma.query.get_or_404(matricula_id)
+    aluno = matricula.aluno
     motivo = (request.form.get('motivo') or '').strip() or None
-    res = services_financeiro.cancelar_plano_aluno(aluno, motivo=motivo)
+    res = services_financeiro.cancelar_plano_matricula(matricula, motivo=motivo)
+    turma_nome = matricula.turma.nome if matricula.turma else '?'
     if not res['plano_cancelado']:
-        flash('Aluno não tinha plano ativo.', 'warning')
+        flash(f'Matrícula em {turma_nome} não tinha plano ativo.', 'warning')
     else:
-        msg = (f"Plano cancelado. {res['mensalidades_canceladas']} mensalidade(s) "
+        msg = (f"Plano de {turma_nome} cancelado. "
+               f"{res['mensalidades_canceladas']} mensalidade(s) "
                f"e {res['boletos_cancelados']} boleto(s) cancelados.")
         if res['erros_cora']:
             msg += f" {res['erros_cora']} erro(s) ao cancelar no Cora."

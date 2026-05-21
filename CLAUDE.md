@@ -13,12 +13,14 @@ Detalhes profundos de cada módulo estão em `docs/` — leia o arquivo correspo
 acompanhem notas, frequência, atividades, alertas e cursos com videoaulas.
 O nome e a logo da plataforma são configuráveis pelo admin sem mexer no código.
 
-**Estado atual (2026-05-20):** funcional, testado localmente, com redesign visual
+**Estado atual (2026-05-21):** funcional, testado localmente, com redesign visual
 completo ("Sistema Arvorecer"), módulo financeiro (mensalidades, boletos, fluxo de
 caixa, inadimplentes) com Banco Cora em modo mock, múltiplas matrículas de turma
 por aluno com histórico, aniversariantes e relatórios com KPIs/gráficos/PDF,
-**perfil "Secretário(a)" + permissões customizáveis por usuário** (admin pode
-ajustar checkboxes individualmente em `/admin/usuarios/<id>/permissoes`).
+perfil "Secretário(a)" + permissões customizáveis por usuário (admin pode
+ajustar checkboxes individualmente em `/admin/usuarios/<id>/permissoes`),
+**multi-plano de pagamento por matrícula** — aluno com N turmas ativas pode ter
+N planos paralelos, cada um com responsável-pagador e valor próprios.
 Em fase de aprimoramento para implantação no instituto.
 
 ---
@@ -117,14 +119,22 @@ Flask-Migrate configurado com `render_as_batch=True` (obrigatório para SQLite).
 
 ### Matrículas em turma (2026-05-19)
 - `MatriculaTurma` — vínculo aluno↔turma com histórico. Status `ativo|formado|evadido|transferido`.
-  Sem unique composto — permite reentrada. **Detalhes em [docs/matriculas.md](docs/matriculas.md).**
+  Sem unique composto — permite reentrada. Campo `mensalidade_padrao Numeric(10,2)`
+  (2026-05-21) — valor sugerido do plano para essa turma específica.
+  **Detalhes em [docs/matriculas.md](docs/matriculas.md).**
 
-### Financeiro (2026-05-04)
-- `PlanoPagamento` — `(aluno, n_parcelas, valor_parcela, dia_vencimento, data_primeira, status, observacao)`.
-  Status: `ativo|cancelado|concluido`. Um aluno só tem **um plano ativo** por vez.
-- `Mensalidade` — `(aluno, responsavel, mes, ano, valor, vencimento)` — unique por `(aluno_id, mes, ano)`.
+### Financeiro (2026-05-04, multi-plano em 2026-05-21)
+- `PlanoPagamento` — `(aluno_id, matricula_turma_id, responsavel_id, n_parcelas,
+  valor_parcela, dia_vencimento, data_primeira, status, observacao)`.
+  Status: `ativo|cancelado|concluido`. **Um plano ativo por matrícula** — aluno
+  com N turmas ativas pode ter N planos. `aluno_id` mantido por compat;
+  `matricula_turma_id` é a fonte da verdade.
+- `Mensalidade` — `(aluno, responsavel, matricula_turma, plano, mes, ano, valor, vencimento)` —
+  unique por `(matricula_turma_id, mes, ano)`. NULL em `matricula_turma_id`
+  é distinto pelo SQLite (mensalidades legacy não migradas convivem).
   `plano_id` FK opcional. `cancelada_em` DateTime opcional.
-- `Aluno.mensalidade_padrao` — `Numeric(10,2)` opcional (valor sugerido na geração de lote).
+- `Aluno.mensalidade_padrao` — `Numeric(10,2)` opcional. Fallback quando a
+  matrícula não tem `mensalidade_padrao` próprio (que ganhou precedência).
 - `Boleto` — `cora_boleto_id`, `status` (`aberto|pago|vencido|cancelado`), valor, vencimento,
   pago_em, link_pdf, link_boleto. FK opcional pra `Mensalidade` (cascade).
 - `CategoriaDespesa` — `(nome unique, cor)` — categorias editáveis pelo admin.
@@ -170,16 +180,29 @@ Flask-Migrate configurado com `render_as_batch=True` (obrigatório para SQLite).
   - `criar_plano_pagamento` e `gerar_mensalidades_lote` exigem responsável apenas se
     `aluno.idade < 18`. Adultos podem ter plano sem responsável.
   - `emitir_boleto` usa o próprio aluno como pagador quando `mensalidade.responsavel is None`.
-- **Plano de pagamento (parcelamento):**
-  - Criado em `/admin/financeiro/planos/<aluno_id>`.
+- **Plano de pagamento (parcelamento) — multi-plano por matrícula (2026-05-21):**
+  - Página em `/admin/financeiro/planos/<aluno_id>` — lista **1 card por matrícula ativa**.
+    Aluno com 2 turmas pode ter 2 planos paralelos, cada um com responsável-pagador e valor próprio.
+  - Service: `criar_plano_pagamento(matricula, n_parcelas, valor_parcela, ..., responsavel_id=None)`.
+    Recebe `MatriculaTurma`, não `Aluno`. Falha com `ValueError` se matrícula não está `ativo`,
+    se já tem plano ativo nessa matrícula, ou se o `responsavel_id` não pertence ao aluno.
+  - Rotas POST: `/admin/financeiro/planos/matricula/<matricula_id>/criar` e `.../cancelar`.
   - **Estratégia híbrida**: registra todas as N mensalidades de uma vez, mas só **emite o boleto**
     da primeira (e apenas se vencer em ≤ 30 dias — `JANELA_EMISSAO_DIAS`). Próximos boletos
     emitidos sob demanda.
   - **Vencimento empurrado pra próxima segunda** se cair sábado/domingo (`proximo_dia_util`).
     Sem feriados — decisão consciente.
-  - **Idempotência**: `criar_plano_pagamento` falha com `ValueError` se aluno já tem plano ativo.
+  - **Cancelamento por matrícula** (`cancelar_plano_matricula(matricula)`) atinge só o plano
+    daquela turma. `cancelar_plano_aluno(aluno)` é wrapper agregado que itera matrículas —
+    usado quando o aluno todo é desligado (exclusão, status legacy `evadido`).
+  - **Valor sugerido no form** segue a ordem: `matricula.mensalidade_padrao` →
+    `aluno.mensalidade_padrao` → vazio. `gerar_mensalidades_lote` aplica a mesma ordem.
+  - Lookup por matrícula: `plano_ativo_da_matricula(matricula)`. Lookup agregado:
+    `planos_ativos_do_aluno(aluno)` (lista). `plano_ativo_do_aluno(aluno)` mantida por
+    compat retornando o primeiro da lista.
 - **Financeiro:**
-  - Mensalidade é única por `(aluno, mês, ano)` — constraint no banco.
+  - Mensalidade é única por `(matricula_turma_id, mes, ano)` — constraint no banco.
+    Aluno com N turmas tem N mensalidades possíveis no mesmo mês (uma por turma).
   - Boletos só são gerados via `services_cora.get_cora_client()` — nunca instanciar
     `CoraClient` diretamente.
   - `CORA_MODE=mock` (default) usa `CoraMockClient`. `CORA_MODE=real` ainda **não** está
@@ -231,6 +254,9 @@ hamburger no mobile. Detalhes em [docs/design-system.md](docs/design-system.md).
    depois que todos os alunos antigos tiverem matrículas migradas.
 9. **Gráficos no PDF de relatórios** — exigiria matplotlib (decisão consciente de não
    adicionar a dependência ainda).
+10. **Limpeza do multi-plano** — remover `PlanoPagamento.aluno_id` redundante (info vem
+    via `matricula.aluno`). Esperar uns ciclos antes de dropar pra ter certeza que
+    nenhum código legacy ainda assume a coluna.
 
 ---
 
@@ -250,6 +276,12 @@ hamburger no mobile. Detalhes em [docs/design-system.md](docs/design-system.md).
   (ver [docs/design-system.md](docs/design-system.md)).
 - **Login e register não herdam de `base.html`** — `base.html` exige `current_user.is_authenticated`.
   Páginas de auth são standalone (carregam Bootstrap CSS + style.css diretamente).
+- **Multi-plano + constraint legacy = ERR_CONNECTION_RESET** (2026-05-21): a constraint
+  `uq_mensalidade_aluno_mes_ano(aluno_id,mes,ano)` impedia criar mensalidades paralelas
+  no mesmo mês quando aluno tinha >1 matrícula. O `IntegrityError` dentro do `flush()`
+  com debug mode aberto crashava o socket (não saía 500 limpo). Migration `d7a8e2c3f1b9`
+  trocou pra `(matricula_turma_id,mes,ano)`. **Nunca usar `aluno_id+mes+ano` como
+  chave única novamente** — esse é o ponto que destrava multi-plano.
 
 ---
 

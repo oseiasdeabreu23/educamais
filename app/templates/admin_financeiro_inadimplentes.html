@@ -64,6 +64,7 @@
         <thead>
           <tr>
             <th>Vencimento</th>
+            <th>Turma</th>
             <th class="text-end">Valor</th>
             <th>Status</th>
             <th></th>
@@ -71,8 +72,13 @@
         </thead>
         <tbody>
           {% for b in ina.boletos %}
+          {% set mens = b.mensalidade %}
+          {% set turma = mens.matricula.turma if mens and mens.matricula else None %}
           <tr>
             <td class="dim">{{ b.vencimento.strftime('%d/%m/%Y') }}</td>
+            <td class="dim" style="font-size:12px">
+              {{ turma.nome if turma else '—' }}
+            </td>
             <td class="text-end fw-600">
               R$ {{ '{:,.2f}'.format(b.valor).replace(',', 'X').replace('.', ',').replace('X', '.') }}
             </td>

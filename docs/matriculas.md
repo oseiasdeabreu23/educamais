@@ -51,7 +51,8 @@ Campos legacy mantidos:
 - `Aluno.turma_id` — sincronizado com a "primeira turma ativa" na criação.
   Lido por código antigo (templates `aluno.turma.nome`, etc).
 - `Aluno.status` — ainda editável pelo form de edição. Quando muda para `evadido`,
-  o `editar_aluno` chama `cancelar_plano_aluno` (regra antiga, idempotente).
+  o `editar_aluno` chama `cancelar_plano_aluno` (wrapper agregado, idempotente —
+  cancela planos de todas as matrículas + planos legacy).
 
 ## Rotas
 
@@ -64,13 +65,20 @@ Campos legacy mantidos:
 - Filtro `/admin/alunos?status=ativo|evadido|formado|transferido` usa subqueries
   `EXISTS` sobre `MatriculaTurma`.
 
-## Cascade financeiro
+## Cascade financeiro (atualizado 2026-05-21)
 
-Cancela plano automaticamente quando o aluno **fica sem nenhuma matrícula ativa**
-após uma evasão (regra nova, na rota de vínculos). A regra antiga continua
-funcionando (mudar `Aluno.status` legacy para `evadido` via form principal cancela
-o plano também). Como `cancelar_plano_aluno` é **idempotente**, as duas rotas
-coexistem sem duplicar cancelamento.
+Cada matrícula carrega seu próprio plano de pagamento — multi-plano por matrícula
+(ver [financeiro.md](financeiro.md)). O cascade é granular:
+
+- **Evadir uma matrícula específica** (em `/admin/alunos/<id>/vinculos`): cancela
+  só o plano daquela matrícula via `cancelar_plano_matricula(matricula)`. Outras
+  matrículas ativas do aluno continuam com seus planos intactos.
+- **Mudar `Aluno.status` legacy para `evadido`** (form principal de edição) ou
+  **excluir aluno**: chama `cancelar_plano_aluno(aluno)` (wrapper agregado) que
+  itera todas as matrículas + cobre planos legacy sem `matricula_turma_id`.
+
+Todas as funções de cancelamento são **idempotentes** — as duas rotas coexistem
+sem duplicar cancelamento.
 
 ## Limitações conhecidas
 
