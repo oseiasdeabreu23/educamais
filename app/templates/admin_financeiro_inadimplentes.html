@@ -102,10 +102,8 @@
         </tbody>
       </table>
 
-      {% set tel = (ina.responsavel.telefone if ina.responsavel else ina.aluno.telefone) %}
-      {% set nome_dest = (ina.responsavel.nome if ina.responsavel else ina.aluno.nome) %}
-      {% if tel %}
-      <a href="https://wa.me/55{{ tel | replace('(','') | replace(')','') | replace(' ','') | replace('-','') }}?text=Olá%20{{ nome_dest | urlencode }}%2C%20referente%20à%20mensalidade%20de%20{{ ina.aluno.nome | urlencode }}%20no%20valor%20de%20R%24%20{{ ina.total_devido }}"
+      {% if ina.whatsapp_url %}
+      <a href="{{ ina.whatsapp_url }}"
          target="_blank" class="btn btn-ghost btn-sm w-100 mt-2">
         <i class="bi bi-whatsapp"></i> Enviar lembrete
       </a>

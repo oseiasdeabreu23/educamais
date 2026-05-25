@@ -211,6 +211,19 @@ Flask-Migrate configurado com `render_as_batch=True` (obrigatório para SQLite).
     precisa validar HMAC do Cora.
   - Comprovantes de despesa em `app/static/uploads/comprovantes/`. Máximo 5 MB.
   - Inadimplência só conta boletos com `status in (aberto, vencido)` E `vencimento < hoje`.
+  - **Lembrete de inadimplência por curso (2026-05-25):** o botão "Enviar lembrete" da
+    tela de inadimplentes monta uma mensagem de WhatsApp citando o(s) curso(s) — `turma.nome`,
+    via `Boleto → Mensalidade → Matrícula → Turma` —, valor e vencimento (dd/mm/aaaa).
+    - Texto gerado por `services_financeiro.texto_lembrete_inadimplencia(item)`. **1 boleto**
+      → frase única; **2+ boletos** → uma linha por mês + total.
+    - A mensagem sempre lista **todos** os meses em atraso do aluno
+      (`boletos_em_atraso_do_aluno(aluno)`), **independente do filtro de mês da tela** —
+      o filtro afeta só os cards exibidos, não o conteúdo do lembrete.
+    - Se o aluno tem **2+ turmas ativas** (`aluno.turmas_ativas`), acrescenta a linha
+      "Você está inscrito(a) em: …".
+    - A rota `financeiro_inadimplentes` anexa `item['whatsapp_url']` (telefone via `so_digitos`
+      + texto via `urllib.parse.quote`); fica `None` sem telefone. O template só usa a URL pronta
+      — **nunca montar o texto/URL em Jinja** (era a origem do `href` genérico antigo).
 
 ---
 
@@ -358,6 +371,9 @@ Cada arquivo abaixo é independente. Leia **apenas o que for relevante** pra tar
   machine_id (postgres vs sqlite), modos bloqueio/log, endpoints whitelistados, telas.
 - **[docs/backup.md](docs/backup.md)** — formato do zip, resolução do path SQLite,
   sequência de restauração com pre-backup, validação de nome de arquivo.
+  **Produção (2026-05-25):** backup local é só dev/SQLite; em prod (Postgres/Vercel
+  read-only) usa export portátil por download (`dados.json`, sem `pg_dump`, sem disco).
+  `backup_local_disponivel()` decide o ramo. Restauração/import do `dados.json` é fase futura.
 - **[docs/relatorios.md](docs/relatorios.md)** — KPIs, gráficos Chart.js, exportação PDF
   via reportlab, portabilidade SQL (extract vs strftime).
 - **[docs/aniversariantes.md](docs/aniversariantes.md)** — escopos dia/semana/mês,

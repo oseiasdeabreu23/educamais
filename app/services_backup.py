@@ -10,17 +10,23 @@ Arquivos ficam em ``instance/backups/``.
 """
 import os
 import io
+import base64
 import json
 import shutil
 import sqlite3
 import zipfile
-from datetime import datetime
+from datetime import datetime, date
+from decimal import Decimal
 from pathlib import Path
 
 from app import db
 
 MANIFEST_NAME = 'manifest.json'
 MANIFEST_VERSION = 1
+
+# Versão do export portátil (dados.json). Separada do MANIFEST_VERSION do
+# backup local (zip com educamais.db) porque os formatos são distintos.
+EXPORT_VERSION = 1
 
 
 def _instance_dir(app):
@@ -210,3 +216,94 @@ def caminho_backup(app, nome):
     if '/' in nome or '\\' in nome or '..' in nome or not nome.endswith('.zip'):
         raise ValueError('Nome de arquivo inválido.')
     return _backups_dir(app) / nome
+
+
+# --------------------------------------------------------------------------- #
+# Export portátil (produção) — funciona em Postgres e SQLite, sem gravar em
+# disco e sem pg_dump. Gera um .zip em memória pra download direto no navegador.
+# A restauração/import deste formato ainda NÃO foi implementada (fase futura).
+# --------------------------------------------------------------------------- #
+
+def backup_local_disponivel(app):
+    """True se o backup local (zip com educamais.db em disco) é viável.
+
+    Requer banco SQLite **e** filesystem gravável. Em produção (Postgres ou
+    runtime read-only, ex.: Vercel) devolve False — nesse caso a app usa o
+    export portátil por download (:func:`gerar_export_zip_bytes`).
+    """
+    uri = app.config.get('SQLALCHEMY_DATABASE_URI', '')
+    if not uri.startswith('sqlite'):
+        return False
+    try:
+        _backups_dir(app)  # tenta criar instance/backups/; levanta se read-only
+        return True
+    except RuntimeError:
+        return False
+
+
+def _json_safe(v):
+    """Converte um valor de coluna para algo serializável em JSON."""
+    if isinstance(v, Decimal):
+        return str(v)  # preserva precisão (ex.: valores monetários)
+    if isinstance(v, (datetime, date)):
+        return v.isoformat()
+    if isinstance(v, (bytes, bytearray)):
+        return {'__bytes_b64__': base64.b64encode(bytes(v)).decode('ascii')}
+    return v
+
+
+def exportar_dados(app):
+    """Dump portátil de todas as tabelas mapeadas (Postgres ou SQLite).
+
+    Returns:
+        (tabelas, contagem): ``tabelas`` é ``{nome: [linha_dict, ...]}`` na
+        ordem de dependência de FK; ``contagem`` é ``{nome: n_linhas}``.
+    """
+    tabelas = {}
+    contagem = {}
+    for table in db.metadata.sorted_tables:
+        rows = db.session.execute(table.select()).mappings().all()
+        tabelas[table.name] = [
+            {col: _json_safe(val) for col, val in dict(row).items()}
+            for row in rows
+        ]
+        contagem[table.name] = len(rows)
+    return tabelas, contagem
+
+
+def gerar_export_zip_bytes(app, prefixo='backup_dados'):
+    """Monta em memória um .zip com ``dados.json`` + ``manifest.json``.
+
+    Não grava em disco — devolve ``(BytesIO, nome_arquivo)`` para a rota
+    transmitir via ``send_file``. Usado em produção (filesystem read-only /
+    Postgres), onde :func:`criar_backup` não funciona.
+    """
+    timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+    nome = f'{prefixo}_{timestamp}.zip'
+
+    tabelas, contagem = exportar_dados(app)
+    uri = app.config.get('SQLALCHEMY_DATABASE_URI', '')
+    dialeto = uri.split(':', 1)[0].split('+', 1)[0] if uri else 'desconhecido'
+
+    manifest = {
+        'export_version': EXPORT_VERSION,
+        'created_at': datetime.now().isoformat(timespec='seconds'),
+        'app': 'EducaMais',
+        'db_dialect': dialeto,
+        'tabelas': contagem,
+        'total_linhas': sum(contagem.values()),
+        'inclui_uploads': False,
+    }
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr(
+            'dados.json',
+            json.dumps({'tabelas': tabelas}, ensure_ascii=False, indent=2),
+        )
+        zf.writestr(
+            MANIFEST_NAME,
+            json.dumps(manifest, ensure_ascii=False, indent=2),
+        )
+    buf.seek(0)
+    return buf, nome

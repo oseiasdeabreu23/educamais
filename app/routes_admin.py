@@ -1169,20 +1169,34 @@ def vincular_aluno_turma():
 @login_required
 @requires('backup.gerenciar')
 def backup():
-    backups = services_backup.listar_backups(current_app)
-    return render_template('admin_backup.html', backups=backups)
+    backup_local = services_backup.backup_local_disponivel(current_app)
+    backups = services_backup.listar_backups(current_app) if backup_local else []
+    return render_template('admin_backup.html', backups=backups,
+                           backup_local=backup_local)
 
 
 @admin_bp.route('/backup/criar', methods=['POST'])
 @login_required
 @requires('backup.gerenciar')
 def backup_criar():
+    # Dev/SQLite com filesystem gravável → backup local em disco (round-trip
+    # com a restauração). Produção (Postgres/read-only) → export portátil
+    # transmitido direto pro navegador, sem gravar em disco.
+    if services_backup.backup_local_disponivel(current_app):
+        try:
+            caminho = services_backup.criar_backup(current_app)
+            flash(f'Backup criado: {caminho.name}', 'success')
+        except Exception as e:
+            flash(f'Erro ao criar backup: {e}', 'danger')
+        return redirect(url_for('admin.backup'))
+
     try:
-        caminho = services_backup.criar_backup(current_app)
-        flash(f'Backup criado: {caminho.name}', 'success')
+        buf, nome = services_backup.gerar_export_zip_bytes(current_app)
     except Exception as e:
-        flash(f'Erro ao criar backup: {e}', 'danger')
-    return redirect(url_for('admin.backup'))
+        flash(f'Erro ao gerar backup: {e}', 'danger')
+        return redirect(url_for('admin.backup'))
+    return send_file(buf, as_attachment=True, download_name=nome,
+                     mimetype='application/zip')
 
 
 @admin_bp.route('/backup/baixar/<nome>')
@@ -1576,6 +1590,16 @@ def financeiro_inadimplentes():
     mes = int(request.args.get('mes', date.today().month))
     ano = int(request.args.get('ano', date.today().year))
     lista = services_financeiro.inadimplentes(escopo=escopo, mes=mes, ano=ano)
+    from urllib.parse import quote
+    for item in lista:
+        resp = item.get('responsavel')
+        tel = (resp.telefone if resp else item['aluno'].telefone) or ''
+        digitos = so_digitos(tel)
+        if digitos:
+            texto = services_financeiro.texto_lembrete_inadimplencia(item)
+            item['whatsapp_url'] = f'https://wa.me/55{digitos}?text={quote(texto)}'
+        else:
+            item['whatsapp_url'] = None
     return render_template(
         'admin_financeiro_inadimplentes.html',
         inadimplentes=lista, escopo=escopo, mes=mes, ano=ano,
@@ -1591,14 +1615,21 @@ def financeiro_inadimplentes():
 def financeiro_fluxo_caixa():
     mes = int(request.args.get('mes', date.today().month))
     ano = int(request.args.get('ano', date.today().year))
+    tipo = request.args.get('tipo', '')
+    if tipo not in ('entrada', 'saida'):
+        tipo = ''  # qualquer outro valor = mostrar tudo
     from calendar import monthrange
     inicio = date(ano, mes, 1)
     fim = date(ano, mes, monthrange(ano, mes)[1])
     fluxo = services_financeiro.fluxo_caixa(inicio, fim)
+    # KPIs (entradas/saídas/saldo) seguem refletindo o período inteiro;
+    # só a tabela é filtrada pelo tipo clicado.
+    movimentacoes = [m for m in fluxo['movimentacoes'] if not tipo or m.tipo == tipo]
     categorias = CategoriaDespesa.query.order_by(CategoriaDespesa.nome).all()
     return render_template(
         'admin_financeiro_fluxo.html',
-        fluxo=fluxo, mes=mes, ano=ano, mes_nome=MESES_PT[mes - 1],
+        fluxo=fluxo, movimentacoes=movimentacoes, tipo=tipo,
+        mes=mes, ano=ano, mes_nome=MESES_PT[mes - 1],
         meses=MESES_PT, categorias=categorias, hoje=date.today(),
     )
 

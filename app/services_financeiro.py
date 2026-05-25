@@ -566,6 +566,92 @@ def inadimplentes(escopo='mes', mes=None, ano=None):
     )
 
 
+def _brl(v):
+    """Formata número no padrão R$ 1.234,56."""
+    if v is None:
+        return 'R$ 0,00'
+    s = f'{float(v):,.2f}'
+    return 'R$ ' + s.replace(',', 'X').replace('.', ',').replace('X', '.')
+
+
+def boletos_em_atraso_do_aluno(aluno):
+    """Todos os boletos vencidos e em aberto de um aluno, ordenados por vencimento.
+
+    Independente de filtro de mês — devolve a dívida completa (1, 2, 3+ meses),
+    para o lembrete sempre refletir tudo o que o aluno deve.
+    """
+    hoje = date.today()
+    return (
+        db.session.query(Boleto)
+        .join(Mensalidade, Boleto.mensalidade_id == Mensalidade.id)
+        .filter(
+            Mensalidade.aluno_id == aluno.id,
+            Boleto.status.in_(['aberto', 'vencido']),
+            Boleto.vencimento < hoje,
+        )
+        .order_by(Boleto.vencimento.asc())
+        .all()
+    )
+
+
+def _nome_curso_do_boleto(boleto):
+    """Nome da turma (curso) vinculada ao boleto, com fallback seguro."""
+    mens = boleto.mensalidade
+    if mens and mens.matricula and mens.matricula.turma:
+        return mens.matricula.turma.nome
+    return 'curso'
+
+
+def texto_lembrete_inadimplencia(item):
+    """Monta o texto do lembrete de WhatsApp para um inadimplente.
+
+    ``item`` é um dict no formato devolvido por :func:`inadimplentes`
+    (``{aluno, responsavel, ...}``). A mensagem lista **todos** os meses em
+    atraso do aluno (não apenas os do filtro de tela) — uma linha por boleto.
+
+    Regras:
+      - 1 boleto em atraso → frase única e natural.
+      - 2+ boletos → uma linha por mês (curso — valor — venc. dd/mm/aaaa) + total.
+      - Se o aluno tem 2+ turmas ativas, acrescenta a linha "Você está inscrito(a) em".
+    """
+    aluno = item['aluno']
+    resp = item.get('responsavel')
+    nome_dest = resp.nome if resp else aluno.nome
+
+    atrasados = boletos_em_atraso_do_aluno(aluno)
+    if not atrasados:
+        return f'Olá, {nome_dest}! Tudo bem?'
+
+    linhas = [f'Olá, {nome_dest}! Tudo bem?']
+
+    if len(atrasados) == 1:
+        b = atrasados[0]
+        linhas.append(
+            f'Estou entrando em contato referente à mensalidade do curso de '
+            f'{_nome_curso_do_boleto(b)}, que está em aberto no valor de '
+            f'{_brl(b.valor)}, com vencimento para '
+            f'{b.vencimento.strftime("%d/%m/%Y")}.'
+        )
+    else:
+        linhas.append('Estou entrando em contato referente às mensalidades em aberto:')
+        total = Decimal('0')
+        for b in atrasados:
+            total += b.valor
+            linhas.append(
+                f'• {_nome_curso_do_boleto(b)} — {_brl(b.valor)} '
+                f'(venc. {b.vencimento.strftime("%d/%m/%Y")})'
+            )
+        linhas.append(f'Total em aberto: {_brl(total)}.')
+
+    turmas_ativas = aluno.turmas_ativas
+    if len(turmas_ativas) >= 2:
+        nomes = ', '.join(t.nome for t in turmas_ativas)
+        linhas.append('')
+        linhas.append(f'Você está inscrito(a) em: {nomes}.')
+
+    return '\n'.join(linhas)
+
+
 # --------------------------------------------------------------------------- #
 # Plano de pagamento (parcelamento)
 # --------------------------------------------------------------------------- #
