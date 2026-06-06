@@ -18,8 +18,10 @@ login_manager.login_view = 'auth.login'
 def _normalize_db_url(url):
     """Normaliza URL do banco.
 
-    Aceita ``postgres://`` (formato legado) e força o driver ``psycopg2``
-    pra Postgres — Supabase entrega ``postgresql://`` sem driver explícito.
+    Suporta:
+    - sqlite:///...         → dev local
+    - libsql://...          → Turso (prod)
+    - postgresql://...      → Postgres legado (compat)
     """
     if not url:
         return url
@@ -27,6 +29,12 @@ def _normalize_db_url(url):
         url = 'postgresql://' + url[len('postgres://'):]
     if url.startswith('postgresql://') and '+psycopg' not in url:
         url = 'postgresql+psycopg2://' + url[len('postgresql://'):]
+    if url.startswith('libsql://') or url.startswith('libsqls://'):
+        # Converte para o formato aceito pelo sqlalchemy-libsql:
+        # libsql+https://host?authToken=TOKEN
+        auth_token = os.getenv('TURSO_AUTH_TOKEN', '')
+        host = url.replace('libsql://', '').replace('libsqls://', '')
+        url = f'libsql+https://{host}?authToken={auth_token}'
     return url
 
 
@@ -52,6 +60,11 @@ def create_app():
             'pool_recycle': 300,
             'pool_size': 5,
             'max_overflow': 10,
+        }
+    elif app.config['SQLALCHEMY_DATABASE_URI'].startswith('libsql'):
+        # Turso: sem pool tradicional — cada request abre/fecha via HTTP
+        app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+            'pool_pre_ping': False,
         }
     # 5 MB cobre comprovantes; logos têm validação manual de 2 MB no upload
     app.config['MAX_CONTENT_LENGTH'] = 5 * 1024 * 1024
