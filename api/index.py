@@ -1,15 +1,27 @@
-"""Entrypoint Vercel — expõe a Flask app como WSGI.
-
-Vercel detecta o callable ``app`` neste arquivo e usa o runtime
-``@vercel/python`` pra servir como serverless function.
-"""
+"""Entrypoint Vercel — expõe a Flask app como WSGI."""
 import os
 import sys
+import traceback
+import flask
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from app import create_app  # noqa: E402
+app = flask.Flask(__name__)
+_boot_error = None
 
-app = create_app()
+try:
+    from app import create_app
+    app = create_app()
+except Exception:
+    _boot_error = traceback.format_exc()
+    print("BOOT ERROR:\n" + _boot_error, flush=True)
+
+if _boot_error:
+    _captured = _boot_error
+
+    @app.route('/', defaults={'path': ''})
+    @app.route('/<path:path>')
+    def _show_boot_error(path):
+        return flask.Response("BOOT ERROR:\n" + _captured, status=500, mimetype='text/plain')
