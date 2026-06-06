@@ -235,6 +235,7 @@ def create_app():
     _ENDPOINTS_LIVRES = {
         'static',
         'healthz',
+        'debug_db',
         'licenca.bloqueada',
         'licenca.admin',
         'auth.login',
