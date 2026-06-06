@@ -206,6 +206,26 @@ def create_app():
         from flask import jsonify
         return jsonify({'status': 'ok', 'versao': __version__})
 
+    @app.route('/debug-db')
+    def debug_db():
+        """Diagnóstico temporário — remover após resolver o problema."""
+        import traceback
+        from flask import Response
+        out = []
+        try:
+            from app.models import ConfigSistema, ConfigLicenca
+            cfg = ConfigSistema.query.first()
+            out.append(f"ConfigSistema: {cfg.nome if cfg else 'None'}")
+        except Exception:
+            out.append("ConfigSistema ERROR:\n" + traceback.format_exc())
+        try:
+            from app.models import ConfigLicenca
+            lic = ConfigLicenca.query.first()
+            out.append(f"ConfigLicenca: modo={lic.modo if lic else 'None'}")
+        except Exception:
+            out.append("ConfigLicenca ERROR:\n" + traceback.format_exc())
+        return Response("\n\n".join(out), mimetype='text/plain')
+
     # ── Guarda de licença ────────────────────────────────────────────────
     # Endpoints que NUNCA são bloqueados:
     # - static (assets)
