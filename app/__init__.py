@@ -54,7 +54,7 @@ def create_app():
         # NullPool = sem pooling: cria conexão HTTP nova a cada operação,
         # correto para serverless (evita estado corrompido entre requests).
         from app.libsql_http import connect as _libsql_connect
-        from sqlalchemy.pool import NullPool
+        from sqlalchemy.pool import StaticPool
         _turso_host = raw_db_url.replace('libsql://', 'https://').replace('libsqls://', 'https://')
         _turso_token = os.getenv('TURSO_AUTH_TOKEN', '')
 
@@ -64,7 +64,10 @@ def create_app():
         app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite://'
         app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
             'creator': _turso_creator,
-            'poolclass': NullPool,
+            'poolclass': StaticPool,
+            # isolation_level=None → autocommit; o driver ignora BEGIN/COMMIT
+            # e cada query HTTP ao Turso é independente por natureza.
+            'isolation_level': None,
         }
         # Flag para services_licenca.py saber que está rodando contra Turso
         # (não SQLite local), mesmo a URI sendo sqlite://.

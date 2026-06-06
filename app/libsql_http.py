@@ -50,6 +50,14 @@ class Connection:
         pass
 
 
+# Comandos que o SQLAlchemy envia para controle de transação/inicialização
+# mas que o Turso HTTP API não precisa (é autocommit por natureza).
+_SKIP_PATTERNS = (
+    "begin", "commit", "rollback", "pragma", "select 1",
+    "select cast(", "test plain returns", "test unicode returns",
+)
+
+
 class Cursor:
     def __init__(self, conn):
         self._conn = conn
@@ -117,6 +125,15 @@ class Cursor:
     # ── DBAPI2 interface ──────────────────────────────────────────────────
 
     def execute(self, sql, params=None):
+        # Ignora silenciosamente comandos de controle de transação e PRAGMAs
+        # que o SQLAlchemy envia para inicialização — Turso HTTP é autocommit.
+        sql_lower = (sql or "").strip().lower()
+        if any(sql_lower.startswith(p) for p in _SKIP_PATTERNS):
+            self._rows = []
+            self.description = None
+            self.rowcount = 0
+            return self
+
         stmt = self._build_stmt(sql, params)
         results = self._conn._run([stmt])
         self._pos = 0
