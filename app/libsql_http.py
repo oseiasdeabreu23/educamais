@@ -87,7 +87,7 @@ class Cursor:
         if isinstance(v, int):
             return {"type": "integer", "value": str(v)}
         if isinstance(v, float):
-            return {"type": "float", "value": str(v)}
+            return {"type": "float", "value": v}  # Turso exige número JSON, não string
         return {"type": "text", "value": str(v)}
 
     def _build_stmt(self, sql, params):

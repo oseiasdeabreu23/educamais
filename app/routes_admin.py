@@ -66,38 +66,15 @@ def admin_required(func):
 @requires('dashboard.ver')
 def dashboard():
     turmas = Turma.query.all()
-
-    try:
-        medias_map = medias_por_turma()
-    except Exception as e:
-        current_app.logger.error('dashboard:medias_por_turma falhou: %s', e, exc_info=True)
-        medias_map = {}
-
-    try:
-        freq = frequencia_geral()
-    except Exception as e:
-        current_app.logger.error('dashboard:frequencia_geral falhou: %s', e, exc_info=True)
-        freq = 0
-
-    try:
-        baixo = alunos_baixo_desempenho()
-    except Exception as e:
-        current_app.logger.error('dashboard:alunos_baixo_desempenho falhou: %s', e, exc_info=True)
-        baixo = []
-
-    try:
-        aniv_hoje = aniversariantes(escopo='dia')
-    except Exception as e:
-        current_app.logger.error('dashboard:aniversariantes falhou: %s', e, exc_info=True)
-        aniv_hoje = []
-
+    medias_map = medias_por_turma()
     medias = [medias_map.get(t.id, 0) for t in turmas]
     relatorios = {
         'media_geral': round(sum(medias) / (len(turmas) or 1), 2),
         'medias_por_turma': medias_map,
-        'frequencia': freq,
-        'baixo_desempenho': baixo,
+        'frequencia': frequencia_geral(),
+        'baixo_desempenho': alunos_baixo_desempenho(),
     }
+    aniv_hoje = aniversariantes(escopo='dia')
     return render_template('dashboard_admin.html', turmas=turmas,
                            relatorios=relatorios, aniv_hoje=aniv_hoje)
 
