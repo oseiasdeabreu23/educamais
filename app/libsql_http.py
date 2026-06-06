@@ -61,9 +61,11 @@ class Connection:
 
 # Comandos que o SQLAlchemy envia para controle de transação/inicialização
 # mas que o Turso HTTP API não precisa (é autocommit por natureza).
+# ATENÇÃO: não usar "select cast(" genérico — queries reais podem começar com CAST.
 _SKIP_PATTERNS = (
-    "begin", "commit", "rollback", "pragma", "select 1",
-    "select cast(", "test plain returns", "test unicode returns",
+    "begin", "commit", "rollback", "pragma",
+    "select cast('test",   # teste de conexão do SQLAlchemy pysqlite
+    "select 1\n", "select 1 ", "select 1;",  # pings de conexão (não subqueries)
 )
 
 
