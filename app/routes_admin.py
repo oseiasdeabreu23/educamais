@@ -65,18 +65,54 @@ def admin_required(func):
 @login_required
 @requires('dashboard.ver')
 def dashboard():
-    turmas = Turma.query.all()
-    # medias_por_turma() roda 1 query agregada para todas as turmas,
-    # evitando o N+1 do padrão [media_turma(t) for t in turmas].
-    medias_map = medias_por_turma()
+    import traceback as _tb
+    erros = []
+
+    try:
+        turmas = Turma.query.all()
+    except Exception as e:
+        current_app.logger.error('dashboard turmas: %s\n%s', e, _tb.format_exc())
+        erros.append(f'turmas: {e}')
+        turmas = []
+
+    try:
+        medias_map = medias_por_turma()
+    except Exception as e:
+        current_app.logger.error('dashboard medias: %s\n%s', e, _tb.format_exc())
+        erros.append(f'medias: {e}')
+        medias_map = {}
+
+    try:
+        freq = frequencia_geral()
+    except Exception as e:
+        current_app.logger.error('dashboard freq: %s\n%s', e, _tb.format_exc())
+        erros.append(f'freq: {e}')
+        freq = 0
+
+    try:
+        baixo = alunos_baixo_desempenho()
+    except Exception as e:
+        current_app.logger.error('dashboard baixo: %s\n%s', e, _tb.format_exc())
+        erros.append(f'baixo: {e}')
+        baixo = []
+
+    try:
+        aniv_hoje = aniversariantes(escopo='dia')
+    except Exception as e:
+        current_app.logger.error('dashboard aniv: %s\n%s', e, _tb.format_exc())
+        erros.append(f'aniv: {e}')
+        aniv_hoje = []
+
+    if erros:
+        current_app.logger.error('DASHBOARD ERROS: %s', erros)
+
     medias = [medias_map.get(t.id, 0) for t in turmas]
     relatorios = {
         'media_geral': round(sum(medias) / (len(turmas) or 1), 2),
         'medias_por_turma': medias_map,
-        'frequencia': frequencia_geral(),
-        'baixo_desempenho': alunos_baixo_desempenho(),
+        'frequencia': freq,
+        'baixo_desempenho': baixo,
     }
-    aniv_hoje = aniversariantes(escopo='dia')
     return render_template('dashboard_admin.html', turmas=turmas,
                            relatorios=relatorios, aniv_hoje=aniv_hoje)
 
