@@ -4,7 +4,7 @@ Flask-Migrate==4.0.4
 Flask-SQLAlchemy==3.0.5
 bcrypt==4.0.1
 python-dotenv==1.0.0
-libsql-experimental>=0.0.14
+# libsql-experimental removido: usamos driver HTTP puro (app/libsql_http.py)
 requests>=2.32.3,<3.0
 reportlab>=4.0.0,<5.0
 openpyxl>=3.1.0,<4.0

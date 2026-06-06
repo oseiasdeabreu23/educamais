@@ -20,8 +20,11 @@ def _normalize_db_url(url):
 
     Suporta:
     - sqlite:///...         → dev local
-    - libsql://...          → Turso (prod)
+    - libsql://...          → Turso via HTTP puro (prod)
     - postgresql://...      → Postgres legado (compat)
+
+    Para libsql://, retorna 'sqlite://' e configura o creator via
+    _turso_engine_creator() — sem extensão nativa, só requests.
     """
     if not url:
         return url
@@ -29,43 +32,51 @@ def _normalize_db_url(url):
         url = 'postgresql://' + url[len('postgres://'):]
     if url.startswith('postgresql://') and '+psycopg' not in url:
         url = 'postgresql+psycopg2://' + url[len('postgresql://'):]
-    if url.startswith('libsql://') or url.startswith('libsqls://'):
-        # Converte para o formato aceito pelo sqlalchemy-libsql:
-        # libsql+https://host?authToken=TOKEN
-        auth_token = os.getenv('TURSO_AUTH_TOKEN', '')
-        host = url.replace('libsql://', '').replace('libsqls://', '')
-        url = f'libsql+https://{host}?authToken={auth_token}'
+    # libsql:// é tratado em create_app() com engine customizado
     return url
+
+
+def _is_turso_url(url):
+    return url and (url.startswith('libsql://') or url.startswith('libsqls://'))
 
 
 def create_app():
     app = Flask(__name__, template_folder='templates', static_folder='static')
     app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'educomais-secret')
-    app.config['SQLALCHEMY_DATABASE_URI'] = _normalize_db_url(
-        os.getenv('DATABASE_URL', 'sqlite:///educamais.db'))
+
+    raw_db_url = os.getenv('DATABASE_URL', 'sqlite:///educamais.db')
+    _turso = _is_turso_url(raw_db_url)
+
+    if _turso:
+        # Turso via HTTP puro: usa dialeto SQLite do SQLAlchemy com creator
+        # customizado que envia cada query à API HTTP do Turso.
+        # Não requer extensão nativa — só requests (já em requirements).
+        from app.libsql_http import connect as _libsql_connect
+        from sqlalchemy.pool import StaticPool
+        _turso_host = raw_db_url.replace('libsql://', 'https://').replace('libsqls://', 'https://')
+        _turso_token = os.getenv('TURSO_AUTH_TOKEN', '')
+
+        def _turso_creator():
+            return _libsql_connect(_turso_host, _turso_token)
+
+        app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite://'
+        app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+            'creator': _turso_creator,
+            'poolclass': StaticPool,
+            'connect_args': {},
+        }
+    else:
+        app.config['SQLALCHEMY_DATABASE_URI'] = _normalize_db_url(raw_db_url)
+        # Pool de conexões — só aplicado a Postgres (Supabase).
+        if app.config['SQLALCHEMY_DATABASE_URI'].startswith('postgresql'):
+            app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+                'pool_pre_ping': True,
+                'pool_recycle': 300,
+                'pool_size': 5,
+                'max_overflow': 10,
+            }
+
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-    # Pool de conexões — só aplicado a Postgres (Supabase). Em SQLite local
-    # esses parâmetros são ignorados pelo SQLAlchemy.
-    # - pool_pre_ping: testa conexões mortas antes de usar (Supabase mata
-    #   conexões idle ~10 min — sem isso, primeiro request após idle paga
-    #   reconexão TLS + auth, ~200-400ms).
-    # - pool_recycle: recicla conexões a cada 5 min, evita pegar conexões
-    #   prestes a serem mortas pelo Supabase.
-    # - pool_size/max_overflow: 5+10 = 15 conexões por processo. Em Vercel
-    #   serverless, use o pooler do Supabase (porta 6543, modo transaction)
-    #   pra esses limites não estourarem.
-    if app.config['SQLALCHEMY_DATABASE_URI'].startswith('postgresql'):
-        app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-            'pool_pre_ping': True,
-            'pool_recycle': 300,
-            'pool_size': 5,
-            'max_overflow': 10,
-        }
-    elif app.config['SQLALCHEMY_DATABASE_URI'].startswith('libsql'):
-        # Turso: sem pool tradicional — cada request abre/fecha via HTTP
-        app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-            'pool_pre_ping': False,
-        }
     # 5 MB cobre comprovantes; logos têm validação manual de 2 MB no upload
     app.config['MAX_CONTENT_LENGTH'] = 5 * 1024 * 1024
 
