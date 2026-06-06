@@ -19,6 +19,7 @@ from sqlalchemy import func, extract
 
 from app import db
 from app.models import Aluno, Turma, MatriculaTurma
+from app.services import status_derivado_por_aluno
 
 
 STATUS_ENCERRADOS = ('formado', 'evadido', 'transferido')
@@ -36,11 +37,14 @@ def kpis_status_alunos():
         - total
         - taxa_evasao (percentual, 0-100)
     """
-    alunos = Aluno.query.all()
+    alunos = Aluno.query.with_entities(Aluno.id, Aluno.status).all()
+    ids = [a.id for a in alunos]
+    # status_derivado_por_aluno: 1 query para todas as matrículas
+    status_map = status_derivado_por_aluno(ids)
     cont = {'ativo': 0, 'formado': 0, 'evadido': 0,
             'transferido': 0, 'sem_vinculo': 0}
-    for a in alunos:
-        st = a.status_derivado
+    for aluno_id, status_legacy in alunos:
+        st = status_map.get(aluno_id, status_legacy or 'sem_vinculo')
         if st not in cont:
             cont[st] = 0
         cont[st] += 1
@@ -55,7 +59,7 @@ def kpis_status_alunos():
         'evadidos':     cont['evadido'],
         'transferidos': cont['transferido'],
         'sem_vinculo':  cont['sem_vinculo'],
-        'total':        len(alunos),
+        'total':        sum(cont.values()),
         'taxa_evasao':  taxa_evasao,
     }
 
