@@ -49,6 +49,15 @@ class Connection:
     def close(self):
         pass
 
+    # SQLAlchemy's SQLite dialect tenta registrar funções customizadas
+    # (ex: REGEXP) via create_function(). No-op aqui — Turso HTTP não
+    # suporta UDFs, mas o app não as usa.
+    def create_function(self, name, num_params, func, *args, **kwargs):
+        pass
+
+    def create_aggregate(self, name, num_params, agg_class, *args, **kwargs):
+        pass
+
 
 # Comandos que o SQLAlchemy envia para controle de transação/inicialização
 # mas que o Turso HTTP API não precisa (é autocommit por natureza).
