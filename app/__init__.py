@@ -198,14 +198,6 @@ def create_app():
         from flask import jsonify
         return jsonify({'status': 'ok', 'versao': __version__})
 
-    @app.errorhandler(Exception)
-    def _err500(e):
-        import traceback
-        from flask import Response
-        tb = ''.join(traceback.format_exception(type(e), e, e.__traceback__))
-        print("APP EXCEPTION:\n" + tb, flush=True)
-        app.logger.error("APP EXCEPTION:\n%s", tb)
-        return Response("APP EXCEPTION:\n" + tb, status=500, mimetype='text/plain')
 
 
 # ── Guarda de licença ────────────────────────────────────────────────
