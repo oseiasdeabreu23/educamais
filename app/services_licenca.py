@@ -71,7 +71,10 @@ def _machine_id_file():
 
 
 def _usar_db_para_machine_id():
-    """True quando rodando contra Postgres (prod). False em SQLite (dev)."""
+    """True quando rodando contra Postgres ou Turso (prod). False em SQLite dev."""
+    # USING_TURSO é setado em __init__.py quando DATABASE_URL=libsql://
+    if current_app.config.get('USING_TURSO'):
+        return True
     uri = current_app.config.get('SQLALCHEMY_DATABASE_URI', '') or ''
     return not uri.startswith('sqlite:')
 

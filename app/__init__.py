@@ -51,8 +51,10 @@ def create_app():
         # Turso via HTTP puro: usa dialeto SQLite do SQLAlchemy com creator
         # customizado que envia cada query à API HTTP do Turso.
         # Não requer extensão nativa — só requests (já em requirements).
+        # NullPool = sem pooling: cria conexão HTTP nova a cada operação,
+        # correto para serverless (evita estado corrompido entre requests).
         from app.libsql_http import connect as _libsql_connect
-        from sqlalchemy.pool import StaticPool
+        from sqlalchemy.pool import NullPool
         _turso_host = raw_db_url.replace('libsql://', 'https://').replace('libsqls://', 'https://')
         _turso_token = os.getenv('TURSO_AUTH_TOKEN', '')
 
@@ -62,9 +64,11 @@ def create_app():
         app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite://'
         app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
             'creator': _turso_creator,
-            'poolclass': StaticPool,
-            'connect_args': {},
+            'poolclass': NullPool,
         }
+        # Flag para services_licenca.py saber que está rodando contra Turso
+        # (não SQLite local), mesmo a URI sendo sqlite://.
+        app.config['USING_TURSO'] = True
     else:
         app.config['SQLALCHEMY_DATABASE_URI'] = _normalize_db_url(raw_db_url)
         # Pool de conexões — só aplicado a Postgres (Supabase).
