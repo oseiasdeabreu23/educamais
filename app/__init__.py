@@ -206,13 +206,6 @@ def create_app():
         from flask import jsonify
         return jsonify({'status': 'ok', 'versao': __version__})
 
-    @app.errorhandler(500)
-    def _handle_500(e):
-        import traceback
-        from flask import Response
-        tb = traceback.format_exc()
-        print("500 ERROR:\n" + tb, flush=True)
-        return Response("500 ERROR:\n" + tb, status=500, mimetype='text/plain')
 
 # ── Guarda de licença ────────────────────────────────────────────────
     # Endpoints que NUNCA são bloqueados:
